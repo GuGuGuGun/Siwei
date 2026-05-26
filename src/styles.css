@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Weave Tactility (织物质感) CSS System - Premium Apple/Notion Style */
+
+/* 1. Linen Canvas Texture - Softened for Notion feel */
+.bg-linen {
+  background-color: #FCFCFB;
+  background-image: 
+    linear-gradient(90deg, rgba(0, 0, 0, 0.015) 1px, transparent 1px),
+    linear-gradient(rgba(0, 0, 0, 0.015) 1px, transparent 1px);
+  background-size: 8px 8px;
+  position: relative;
+}
+
+/* 2. Light Canvas Sidebar Texture (Replaces Dark Sidebar) */
+.bg-canvas-sidebar {
+  background-color: #F7F7F5;
+  background-image: 
+    linear-gradient(45deg, rgba(0, 0, 0, 0.01) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.01) 75%),
+    linear-gradient(45deg, rgba(0, 0, 0, 0.01) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.01) 75%);
+  background-size: 6px 6px;
+  background-position: 0 0, 3px 3px;
+  border-right: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+/* 3. Single-Stitch Dashed Divider - Refined */
+.border-stitch {
+  border-style: dashed;
+  border-color: rgba(0, 0, 0, 0.08);
+  border-width: 1px;
+}
+
+.border-stitch-dark {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.1);
+  border-width: 1px;
+}
+
+/* 4. Washed Paper Menu & Cards - Apple Diffuse Shadows */
+.bg-washed-paper {
+  background-color: #FFFFFF;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 
+    0 4px 20px -2px rgba(0, 0, 0, 0.04),
+    0 2px 6px -1px rgba(0, 0, 0, 0.02);
+  border-radius: 12px;
+}
+
+/* 5. Custom Buttons - Notion Ghost Button Style */
+.btn-patch-light {
+  background-color: transparent;
+  color: #52525B; /* zinc-600 */
+  border: 1px solid transparent;
+  transition: all 0.15s ease-out;
+}
+.btn-patch-light:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+  color: #18181B; /* zinc-900 */
+  transform: translateY(-0.5px);
+}
+.btn-patch-light:active {
+  transform: translateY(0);
+  background-color: rgba(0, 0, 0, 0.06);
+}
+
+.btn-patch-dark {
+  background-color: transparent;
+  color: #A1A1AA;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+.btn-patch-dark:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #F4F4F5;
+}
+
+/* 6. Soft Elastic Animations & Shadows */
+.shadow-fabric {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+}
+
+.animate-fabric-hover {
+  transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.animate-fabric-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 
+    0 8px 24px -4px rgba(0, 0, 0, 0.06),
+    0 4px 8px -2px rgba(0, 0, 0, 0.03);
+}
+
+/* 7. Scrollbars styling for Linen Theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Sidebar Scrollbar */
+.bg-canvas-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.08);
+}
+.bg-canvas-sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+/* 8. React Flow Patch Nodes Styling */
+.react-flow__handle {
+  width: 6px !important;
+  height: 6px !important;
+  border: none !important;
+  background-color: #A1A1AA !important;
+}
+
+.react-flow__edge-path {
+  transition: stroke 0.15s ease;
+  stroke-dasharray: 4 4; /* stitching line edge */
+  stroke: rgba(0, 0, 0, 0.15) !important;
+}
+
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: #52525B !important; /* darker zinc on hover */
+  stroke-width: 2px !important;
+}
