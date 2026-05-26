@@ -25,9 +25,19 @@ export interface RecentDocItem {
   lastOpenedAt: number
 }
 
+export type SearchMatchSource = 'text' | 'note' | 'tag'
+
+export interface SearchMatch {
+  source: SearchMatchSource
+  value: string
+  matchIndices: Array<[number, number]>
+}
+
 export interface SearchResult {
   nodeId: string
   text: string
   path: string[]
   matchIndices: Array<[number, number]>
+  matchSources: SearchMatchSource[]
+  matches: SearchMatch[]
 }

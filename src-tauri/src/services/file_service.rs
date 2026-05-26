@@ -200,6 +200,14 @@ mod tests {
         }
     }
 
+    fn sample_doc_with_properties(title: &str, child_id: &str) -> OutlineDocument {
+        let mut doc = sample_doc(title, child_id);
+        doc.root.children[0].note = Some("节点备注".to_string());
+        doc.root.children[0].checked = Some(false);
+        doc.root.children[0].tags = Some(vec!["工作".to_string(), "重要".to_string()]);
+        doc
+    }
+
     #[test]
     fn saves_pretty_json_and_creates_backup_on_second_save() {
         let dir = tempdir().unwrap();
@@ -223,12 +231,34 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("doc.siwei.json");
 
-        save_document(&path, &sample_doc("Recoverable", "child_a")).unwrap();
+        save_document(&path, &sample_doc_with_properties("Recoverable", "child_a")).unwrap();
         save_document(&path, &sample_doc("Current", "child_b")).unwrap();
         fs::write(&path, "{ broken json").unwrap();
 
         let loaded = load_document(&path).unwrap();
         assert_eq!(loaded.title, "Recoverable");
+        assert_eq!(loaded.root.children[0].note.as_deref(), Some("节点备注"));
+        assert_eq!(loaded.root.children[0].checked, Some(false));
+        assert_eq!(
+            loaded.root.children[0].tags.as_deref(),
+            Some(&["工作".to_string(), "重要".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn preserves_node_properties_when_saving_and_loading_json() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("doc.siwei.json");
+
+        save_document(&path, &sample_doc_with_properties("Properties", "child_a")).unwrap();
+
+        let loaded = load_document(&path).unwrap();
+        assert_eq!(loaded.root.children[0].note.as_deref(), Some("节点备注"));
+        assert_eq!(loaded.root.children[0].checked, Some(false));
+        assert_eq!(
+            loaded.root.children[0].tags.as_deref(),
+            Some(&["工作".to_string(), "重要".to_string()][..])
+        );
     }
 
     #[test]

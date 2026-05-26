@@ -1,5 +1,10 @@
 import { OutlineNode } from '../types/document'
 
+interface TreeFilterState {
+  tag: string | null
+  checked: 'all' | 'checked' | 'unchecked' | 'task'
+}
+
 /**
  * Finds the index path (e.g. [1, 0, 2]) to the node with the target ID.
  * Returns null if not found.
@@ -239,26 +244,49 @@ export interface VisibleNodeInfo {
  */
 export function getVisibleNodes(
   root: OutlineNode,
-  collapsedNodeIds: Set<string> = new Set()
+  collapsedNodeIds: Set<string> = new Set(),
+  filter: TreeFilterState = { tag: null, checked: 'all' },
 ): VisibleNodeInfo[] {
   const list: VisibleNodeInfo[] = [];
 
-  const traverse = (node: OutlineNode, depth: number, path: number[], parentId: string | null) => {
-    if (depth >= 0) {
+  const matchesFilter = (node: OutlineNode) => {
+    const tagMatches = !filter.tag || (node.tags ?? []).includes(filter.tag)
+    const checkedMatches =
+      filter.checked === 'all' ||
+      (filter.checked === 'checked' && node.checked === true) ||
+      (filter.checked === 'unchecked' && node.checked === false) ||
+      (filter.checked === 'task' && node.checked !== undefined)
+
+    return tagMatches && checkedMatches
+  }
+
+  const traverse = (node: OutlineNode, depth: number, path: number[], parentId: string | null): boolean => {
+    const isCollapsed = depth >= 0 && (node.collapsed || collapsedNodeIds.has(node.id))
+    const childMatches = node.children
+      .map((child, index) => {
+        if (isCollapsed) return false
+        return traverse(child, depth + 1, [...path, index], depth >= 0 ? node.id : null)
+      })
+      .some(Boolean)
+
+    const selfMatches = depth >= 0 && matchesFilter(node)
+    const shouldShow = selfMatches || childMatches
+
+    if (shouldShow && depth >= 0) {
       list.push({ node, depth, path, parentId });
     }
 
-    // Skip children if this node is collapsed.
-    // Note: root node is at depth -1, it is never collapsed.
-    if (depth >= 0 && (node.collapsed || collapsedNodeIds.has(node.id))) {
-      return;
-    }
-
-    for (let i = 0; i < node.children.length; i++) {
-      traverse(node.children[i], depth + 1, [...path, i], depth >= 0 ? node.id : null);
-    }
+    return shouldShow
   };
 
   traverse(root, -1, [], null);
-  return list;
+  return list.sort((left, right) => {
+    const maxLength = Math.max(left.path.length, right.path.length)
+    for (let index = 0; index < maxLength; index += 1) {
+      const leftValue = left.path[index] ?? -1
+      const rightValue = right.path[index] ?? -1
+      if (leftValue !== rightValue) return leftValue - rightValue
+    }
+    return 0
+  });
 }

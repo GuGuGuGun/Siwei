@@ -4,4 +4,4 @@ pub mod search;
 
 pub use document::{OutlineDocument, OutlineNode};
 pub use recent::RecentDocItem;
-pub use search::SearchResult;
+pub use search::{SearchMatch, SearchMatchSource, SearchResult};

@@ -29,6 +29,7 @@ describe('documentStore', () => {
       isDirty: false,
       saveStatus: 'idle',
       currentFilePath: null,
+      filter: { tag: null, checked: 'all' },
       canUndo: false,
       canRedo: false,
       undoStack: [],
@@ -163,7 +164,7 @@ describe('documentStore', () => {
     ])
 
     useDocumentStore.getState().toggleNodeCheck('node-2')
-    expect(useDocumentStore.getState().currentDoc?.root.children[1].checked).toBe(true)
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].checked).toBe(false)
     useDocumentStore.getState().undo()
     expect(useDocumentStore.getState().currentDoc?.root.children[1].checked).toBeUndefined()
 
@@ -266,6 +267,53 @@ describe('documentStore', () => {
 
     useDocumentStore.getState().undo()
     expect(useDocumentStore.getState().currentDoc?.root.children[1].text).toBe('保存点文本')
+    expect(useDocumentStore.getState().isDirty).toBe(false)
+  })
+
+  it('updates note task and tags through history-aware node property actions', async () => {
+    await loadFixtureDoc()
+
+    useDocumentStore.getState().updateNodeNote('node-2', '  多行备注\n第二行  ')
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].note).toBe('多行备注\n第二行')
+    expect(useDocumentStore.getState().isDirty).toBe(true)
+
+    useDocumentStore.getState().setNodeChecked('node-2', false)
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].checked).toBe(false)
+
+    useDocumentStore.getState().toggleNodeChecked('node-2')
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].checked).toBe(true)
+
+    useDocumentStore.getState().setNodeTags('node-2', [' 工作 ', '', '重要', '工作'])
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].tags).toEqual(['工作', '重要'])
+
+    useDocumentStore.getState().addNodeTag('node-2', '新增')
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].tags).toEqual(['工作', '重要', '新增'])
+
+    useDocumentStore.getState().removeNodeTag('node-2', '重要')
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].tags).toEqual(['工作', '新增'])
+
+    useDocumentStore.getState().clearNodeNote('node-2')
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].note).toBeUndefined()
+
+    useDocumentStore.getState().undo()
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].note).toBe('多行备注\n第二行')
+    useDocumentStore.getState().redo()
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].note).toBeUndefined()
+  })
+
+  it('restores clean state when undoing property edits back to the save point', async () => {
+    await loadFixtureDoc()
+    apiMock.saveDocument.mockResolvedValueOnce(undefined)
+    apiMock.addRecentDoc.mockResolvedValueOnce(undefined)
+
+    await useDocumentStore.getState().saveDoc()
+    expect(useDocumentStore.getState().isDirty).toBe(false)
+
+    useDocumentStore.getState().addNodeTag('node-2', '工作')
+    expect(useDocumentStore.getState().isDirty).toBe(true)
+
+    useDocumentStore.getState().undo()
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].tags).toBeUndefined()
     expect(useDocumentStore.getState().isDirty).toBe(false)
   })
 

@@ -15,7 +15,37 @@ pub fn export_markdown(doc: &OutlineDocument) -> String {
 
 fn append_node(lines: &mut Vec<String>, node: &OutlineNode, depth: usize) {
     let indent = "  ".repeat(depth);
-    lines.push(format!("{indent}- {}", escape_list_text(&node.text)));
+    let marker = match node.checked {
+        Some(false) => "- [ ] ",
+        Some(true) => "- [x] ",
+        None => "- ",
+    };
+    let tags = node
+        .tags
+        .as_ref()
+        .map(|tags| {
+            tags.iter()
+                .filter(|tag| is_exportable_tag(tag))
+                .map(|tag| format!("#{tag}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .filter(|tags| !tags.is_empty())
+        .map(|tags| format!(" {tags}"))
+        .unwrap_or_default();
+
+    lines.push(format!(
+        "{indent}{marker}{}{}",
+        escape_list_text(&node.text),
+        tags
+    ));
+
+    if let Some(note) = &node.note {
+        let note_indent = "  ".repeat(depth + 1);
+        for line in note.lines() {
+            lines.push(format!("{note_indent}> {}", escape_note_text(line)));
+        }
+    }
 
     for child in &node.children {
         append_node(lines, child, depth + 1);
@@ -30,6 +60,18 @@ fn escape_list_text(text: &str) -> String {
     text.replace('\\', "\\\\")
         .replace('\r', " ")
         .replace('\n', "\\n")
+}
+
+fn escape_note_text(text: &str) -> String {
+    text.replace('\r', " ")
+}
+
+fn is_exportable_tag(tag: &str) -> bool {
+    !tag.trim().is_empty()
+        && !tag.contains(char::is_whitespace)
+        && !tag.contains('#')
+        && !tag.contains('\r')
+        && !tag.contains('\n')
 }
 
 #[cfg(test)]
@@ -94,6 +136,29 @@ mod tests {
         assert_eq!(
             export_markdown(&doc),
             "# Project Draft\n\n- Line 1\\n- not a child"
+        );
+    }
+
+    #[test]
+    fn exports_task_tags_notes_and_children_in_stable_order() {
+        let mut task = node("a", "发布计划", vec![node("b", "子任务", Vec::new())]);
+        task.checked = Some(false);
+        task.tags = Some(vec!["工作".to_string(), "重要".to_string()]);
+        task.note = Some("备注第一行\n备注第二行".to_string());
+        task.children[0].checked = Some(true);
+
+        let doc = OutlineDocument {
+            id: "doc".to_string(),
+            title: "Project".to_string(),
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+            root: node("root", "Project", vec![task]),
+        };
+
+        assert_eq!(
+            export_markdown(&doc),
+            "# Project\n\n- [ ] 发布计划 #工作 #重要\n  > 备注第一行\n  > 备注第二行\n  - [x] 子任务"
         );
     }
 }

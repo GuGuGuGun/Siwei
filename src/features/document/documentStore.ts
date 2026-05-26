@@ -17,6 +17,12 @@ import {
 
 export type ViewMode = 'outline' | 'mindmap' | 'split'
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+export type CheckedFilter = 'all' | 'checked' | 'unchecked' | 'task'
+
+export interface OutlineFilterState {
+  tag: string | null
+  checked: CheckedFilter
+}
 
 interface HistorySnapshot {
   currentDoc: OutlineDocument
@@ -39,6 +45,7 @@ interface DocumentState {
   isDirty: boolean
   saveStatus: SaveStatus
   currentFilePath: string | null
+  filter: OutlineFilterState
   canUndo: boolean
   canRedo: boolean
   undoStack: HistorySnapshot[]
@@ -66,6 +73,16 @@ interface DocumentState {
   insertNode: (nodeId: string, text?: string) => string | null
   deleteNode: (nodeId: string) => void
   toggleNodeCheck: (nodeId: string) => void
+  updateNodeNote: (nodeId: string, note: string) => void
+  clearNodeNote: (nodeId: string) => void
+  setNodeChecked: (nodeId: string, checked: boolean | undefined) => void
+  toggleNodeChecked: (nodeId: string) => void
+  addNodeTag: (nodeId: string, tag: string) => void
+  removeNodeTag: (nodeId: string, tag: string) => void
+  setNodeTags: (nodeId: string, tags: string[]) => void
+  setFilterTag: (tag: string | null) => void
+  setFilterChecked: (checked: CheckedFilter) => void
+  clearFilters: () => void
 
   // History actions
   undo: () => void
@@ -183,6 +200,59 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     return getCurrentSnapshot()
   }
 
+  const normalizeNote = (note: string): string | undefined => {
+    const trimmed = note.trim()
+    return trimmed.length > 0 ? trimmed : undefined
+  }
+
+  const normalizeTags = (tags: string[]): string[] | undefined => {
+    const seen = new Set<string>()
+    const normalized = tags
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length > 0 && !tag.includes('\n') && !tag.includes('\r'))
+      .filter((tag) => {
+        if (seen.has(tag)) return false
+        seen.add(tag)
+        return true
+      })
+
+    return normalized.length > 0 ? normalized : undefined
+  }
+
+  const areTagsEqual = (left?: string[], right?: string[]): boolean => {
+    return JSON.stringify(left ?? undefined) === JSON.stringify(right ?? undefined)
+  }
+
+  const mutateNodeProperty = (
+    nodeId: string,
+    updater: (node: OutlineNode, now: number) => OutlineNode,
+  ) => {
+    const before = beginMutation()
+    const { currentDoc } = get()
+    if (!currentDoc || !before) return
+
+    const path = findPath(currentDoc.root, nodeId)
+    if (!path) return
+
+    const now = Date.now()
+    const newRoot = updateNodeAtPath(currentDoc.root, path, (node) => updater(node, now))
+    if (newRoot === currentDoc.root) return
+
+    const updatedDoc = {
+      ...currentDoc,
+      root: newRoot,
+      updatedAt: now,
+    }
+
+    set((state) => ({
+      currentDoc: updatedDoc,
+      isDirty: state.cleanSnapshotKey === null
+        ? true
+        : createSnapshot(updatedDoc, state.selectedNodeId, state.collapsedNodeIds).key !== state.cleanSnapshotKey,
+    }))
+    setHistoryAfterMutation(before)
+  }
+
   // Helper to extract collapsed node IDs recursively
   const collectCollapsedIds = (node: OutlineNode, ids: Set<string>) => {
     if (node.collapsed) {
@@ -199,6 +269,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     isDirty: false,
     saveStatus: 'idle',
     currentFilePath: null,
+    filter: { tag: null, checked: 'all' },
     canUndo: false,
     canRedo: false,
     undoStack: [],
@@ -707,29 +778,99 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     },
 
     toggleNodeCheck: (nodeId) => {
-      const before = beginMutation()
-      const { currentDoc } = get()
-      if (!currentDoc || !before) return
-
-      const path = findPath(currentDoc.root, nodeId)
-      if (!path) return
-
-      const newRoot = updateNodeAtPath(currentDoc.root, path, (node) => ({
-        ...node,
-        checked: node.checked !== undefined ? !node.checked : true,
-        updatedAt: Date.now(),
-      }))
-
-      set({
-        currentDoc: {
-          ...currentDoc,
-          root: newRoot,
-          updatedAt: Date.now(),
-        },
-        isDirty: true,
-      })
-      setHistoryAfterMutation(before)
+      get().toggleNodeChecked(nodeId)
     },
+
+    updateNodeNote: (nodeId, note) => {
+      const normalizedNote = normalizeNote(note)
+      mutateNodeProperty(nodeId, (node, now) => {
+        if (node.note === normalizedNote) return node
+        return {
+          ...node,
+          note: normalizedNote,
+          updatedAt: now,
+        }
+      })
+    },
+
+    clearNodeNote: (nodeId) => {
+      get().updateNodeNote(nodeId, '')
+    },
+
+    setNodeChecked: (nodeId, checked) => {
+      mutateNodeProperty(nodeId, (node, now) => {
+        if (node.checked === checked) return node
+        return {
+          ...node,
+          checked,
+          updatedAt: now,
+        }
+      })
+    },
+
+    toggleNodeChecked: (nodeId) => {
+      mutateNodeProperty(nodeId, (node, now) => ({
+        ...node,
+        checked: node.checked === undefined ? false : !node.checked,
+        updatedAt: now,
+      }))
+    },
+
+    addNodeTag: (nodeId, tag) => {
+      mutateNodeProperty(nodeId, (node, now) => {
+        const tags = normalizeTags([...(node.tags ?? []), tag])
+        if (areTagsEqual(node.tags, tags)) return node
+        return {
+          ...node,
+          tags,
+          updatedAt: now,
+        }
+      })
+    },
+
+    removeNodeTag: (nodeId, tag) => {
+      mutateNodeProperty(nodeId, (node, now) => {
+        const tags = normalizeTags((node.tags ?? []).filter((currentTag) => currentTag !== tag))
+        if (areTagsEqual(node.tags, tags)) return node
+        return {
+          ...node,
+          tags,
+          updatedAt: now,
+        }
+      })
+    },
+
+    setNodeTags: (nodeId, tags) => {
+      const normalizedTags = normalizeTags(tags)
+      mutateNodeProperty(nodeId, (node, now) => {
+        if (areTagsEqual(node.tags, normalizedTags)) return node
+        return {
+          ...node,
+          tags: normalizedTags,
+          updatedAt: now,
+        }
+      })
+    },
+
+    setFilterTag: (tag) => {
+      set((state) => ({
+        filter: {
+          ...state.filter,
+          tag: normalizeTags(tag ? [tag] : [])?.[0] ?? null,
+        },
+      }))
+    },
+
+    setFilterChecked: (checked) => {
+      set((state) => ({
+        filter: {
+          ...state.filter,
+          checked,
+        },
+      }))
+    },
+
+    clearFilters: () => set({ filter: { tag: null, checked: 'all' } }),
 
     undo: () => {
       finalizeActiveTextEditSession()

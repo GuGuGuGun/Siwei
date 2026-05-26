@@ -263,59 +263,59 @@ export const App: React.FC = () => {
       <SearchPanel isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
 
       {/* Import Modal Dialog */}
-      <Dialog isOpen={isImportOpen} onClose={() => setIsImportOpen(false)} title="缝入外部文档">
+      <Dialog isOpen={isImportOpen} onClose={() => setIsImportOpen(false)} title="导入文档">
         <div className="space-y-3 py-2 text-zinc-700">
-          <p className="text-[11px] text-zinc-500 leading-relaxed mb-4">
-            从本地磁盘选择要导入缝合的文件。Markdown 导入会自动解析无序缩进列表构建大纲画布。
+          <p className="text-[12px] text-zinc-500 leading-relaxed mb-4">
+            从本地磁盘选择要导入的文件。Markdown 导入会自动解析无序缩进列表构建大纲。
           </p>
           <button
             onClick={() => handleImport('json')}
-            className="w-full flex items-center justify-between p-3.5 rounded-xl border border-dashed border-amber-900/15 bg-[#FAF9F5] text-left hover:bg-[#F3EFE7] hover:border-amber-900/35 transition-all shadow-sm"
+            className="w-full flex items-center justify-between p-3.5 rounded-xl border border-zinc-200/80 bg-zinc-50 text-left hover:bg-zinc-100 hover:border-zinc-300 transition-all shadow-sm group"
           >
             <div>
-              <div className="text-xs font-bold text-zinc-800 tracking-wide">缝合 JSON 贴布 (.siwei.json)</div>
-              <div className="text-[10px] text-zinc-400 mt-1">加载完整的思帷大纲备份文件</div>
+              <div className="text-[13px] font-semibold text-zinc-800 tracking-wide">导入 JSON 备份 (.siwei.json)</div>
+              <div className="text-[11px] text-zinc-500 mt-1">加载完整的思帷大纲备份文件</div>
             </div>
-            <Sparkles size={14} className="text-amber-600" />
+            <Sparkles size={16} className="text-zinc-400 group-hover:text-zinc-600 transition-colors" />
           </button>
           <button
             onClick={() => handleImport('markdown')}
-            className="w-full flex items-center justify-between p-3.5 rounded-xl border border-dashed border-amber-900/15 bg-[#FAF9F5] text-left hover:bg-[#F3EFE7] hover:border-amber-900/35 transition-all shadow-sm"
+            className="w-full flex items-center justify-between p-3.5 rounded-xl border border-zinc-200/80 bg-zinc-50 text-left hover:bg-zinc-100 hover:border-zinc-300 transition-all shadow-sm group"
           >
             <div>
-              <div className="text-xs font-bold text-zinc-800 tracking-wide">缝合 Markdown 贴片 (.md)</div>
-              <div className="text-[10px] text-amber-900/40 mt-1">解析缩进列表语法转换为树节点</div>
+              <div className="text-[13px] font-semibold text-zinc-800 tracking-wide">导入 Markdown (.md)</div>
+              <div className="text-[11px] text-zinc-500 mt-1">解析缩进列表语法转换为树节点</div>
             </div>
-            <Sparkles size={14} className="text-amber-700" />
+            <Sparkles size={16} className="text-zinc-400 group-hover:text-zinc-600 transition-colors" />
           </button>
         </div>
       </Dialog>
 
       {/* Export Modal Dialog */}
-      <Dialog isOpen={isExportOpen} onClose={() => setIsExportOpen(false)} title="导出画布剪贴">
+      <Dialog isOpen={isExportOpen} onClose={() => setIsExportOpen(false)} title="导出文档">
         <div className="space-y-3 py-2 text-zinc-700">
-          <p className="text-[11px] text-zinc-500 leading-relaxed mb-4">
-            将当前编织画布导出为本地文件备份。
+          <p className="text-[12px] text-zinc-500 leading-relaxed mb-4">
+            将当前大纲导出为本地文件备份。
           </p>
           <button
             onClick={() => handleExport('json')}
-            className="w-full flex items-center justify-between p-3.5 rounded-xl border border-dashed border-amber-900/15 bg-[#FAF9F5] text-left hover:bg-[#F3EFE7] hover:border-amber-900/35 transition-all shadow-sm"
+            className="w-full flex items-center justify-between p-3.5 rounded-xl border border-zinc-200/80 bg-zinc-50 text-left hover:bg-zinc-100 hover:border-zinc-300 transition-all shadow-sm group"
           >
             <div>
-              <div className="text-xs font-bold text-zinc-800 tracking-wide">导出 JSON 大纲 (.siwei.json)</div>
-              <div className="text-[10px] text-zinc-400 mt-1">完整备份大纲树结构，包含节点元数据</div>
+              <div className="text-[13px] font-semibold text-zinc-800 tracking-wide">导出 JSON 备份 (.siwei.json)</div>
+              <div className="text-[11px] text-zinc-500 mt-1">完整备份大纲树结构，包含节点元数据</div>
             </div>
-            <Sparkles size={14} className="text-amber-600" />
+            <Sparkles size={16} className="text-zinc-400 group-hover:text-zinc-600 transition-colors" />
           </button>
           <button
             onClick={() => handleExport('markdown')}
-            className="w-full flex items-center justify-between p-3.5 rounded-xl border border-dashed border-amber-900/15 bg-[#FAF9F5] text-left hover:bg-[#F3EFE7] hover:border-amber-900/35 transition-all shadow-sm"
+            className="w-full flex items-center justify-between p-3.5 rounded-xl border border-zinc-200/80 bg-zinc-50 text-left hover:bg-zinc-100 hover:border-zinc-300 transition-all shadow-sm group"
           >
             <div>
-              <div className="text-xs font-bold text-zinc-800 tracking-wide">导出 Markdown 大纲 (.md)</div>
-              <div className="text-[10px] text-amber-900/40 mt-1">生成便于阅读的纯文本无序缩进列表</div>
+              <div className="text-[13px] font-semibold text-zinc-800 tracking-wide">导出 Markdown (.md)</div>
+              <div className="text-[11px] text-zinc-500 mt-1">生成便于阅读的纯文本无序缩进列表</div>
             </div>
-            <Sparkles size={14} className="text-amber-700" />
+            <Sparkles size={16} className="text-zinc-400 group-hover:text-zinc-600 transition-colors" />
           </button>
         </div>
       </Dialog>

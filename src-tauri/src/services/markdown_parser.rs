@@ -10,10 +10,28 @@ pub fn import_markdown(content: &str) -> Result<OutlineDocument, AppError> {
     let timestamp = now_millis();
     let title = extract_title(content).unwrap_or_else(|| "未命名文档".to_string());
     let mut entries = Vec::new();
+    let mut last_list_entry_index: Option<usize> = None;
 
     for (line_index, line) in content.lines().enumerate() {
         if let Some(entry) = parse_list_line(line, line_index + 1)? {
             entries.push(entry);
+            last_list_entry_index = Some(entries.len() - 1);
+            continue;
+        }
+
+        if let Some(note_line) = parse_note_line(line, line_index + 1)? {
+            if let Some(entry_index) = last_list_entry_index {
+                let entry = &mut entries[entry_index];
+                if note_line.depth == entry.depth + 1 {
+                    match &mut entry.note {
+                        Some(note) => {
+                            note.push('\n');
+                            note.push_str(&note_line.text);
+                        }
+                        None => entry.note = Some(note_line.text),
+                    }
+                }
+            }
         }
     }
 
@@ -58,6 +76,15 @@ struct ListEntry {
     line: usize,
     depth: usize,
     text: String,
+    checked: Option<bool>,
+    tags: Option<Vec<String>>,
+    note: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct NoteLine {
+    depth: usize,
+    text: String,
 }
 
 fn parse_list_line(line: &str, line_number: usize) -> Result<Option<ListEntry>, AppError> {
@@ -73,13 +100,82 @@ fn parse_list_line(line: &str, line_number: usize) -> Result<Option<ListEntry>, 
     }
 
     let depth = indentation_depth(&line[..marker_index], line_number)?;
-    let text = line[marker_index + 2..].trim().to_string();
+    let (checked, text_without_marker) = parse_task_marker(line[marker_index + 2..].trim());
+    let (text, tags) = parse_trailing_tags(text_without_marker);
 
     Ok(Some(ListEntry {
         line: line_number,
         depth,
         text,
+        checked,
+        tags,
+        note: None,
     }))
+}
+
+fn parse_note_line(line: &str, line_number: usize) -> Result<Option<NoteLine>, AppError> {
+    let Some(marker_index) = line.find('>') else {
+        return Ok(None);
+    };
+
+    if !line[..marker_index]
+        .chars()
+        .all(|character| character == ' ' || character == '\t')
+    {
+        return Ok(None);
+    }
+
+    let depth = indentation_depth(&line[..marker_index], line_number)?;
+    let text = line[marker_index + 1..]
+        .strip_prefix(' ')
+        .unwrap_or(&line[marker_index + 1..])
+        .to_string();
+
+    Ok(Some(NoteLine { depth, text }))
+}
+
+fn parse_task_marker(text: &str) -> (Option<bool>, &str) {
+    if let Some(rest) = text.strip_prefix("[ ] ") {
+        return (Some(false), rest);
+    }
+
+    if let Some(rest) = text.strip_prefix("[x] ").or_else(|| text.strip_prefix("[X] ")) {
+        return (Some(true), rest);
+    }
+
+    (None, text)
+}
+
+fn parse_trailing_tags(text: &str) -> (String, Option<Vec<String>>) {
+    let mut parts: Vec<&str> = text.split_whitespace().collect();
+    let mut reversed_tags = Vec::new();
+
+    while let Some(part) = parts.last() {
+        let Some(tag) = part.strip_prefix('#') else {
+            break;
+        };
+
+        if tag.is_empty() || tag.contains('#') {
+            break;
+        }
+
+        reversed_tags.push(tag.to_string());
+        parts.pop();
+    }
+
+    if reversed_tags.is_empty() {
+        return (text.trim().to_string(), None);
+    }
+
+    reversed_tags.reverse();
+    let mut seen = std::collections::HashSet::new();
+    let tags = reversed_tags
+        .into_iter()
+        .filter(|tag| seen.insert(tag.clone()))
+        .collect::<Vec<_>>();
+    let normalized_text = parts.join(" ").trim().to_string();
+
+    (normalized_text, (!tags.is_empty()).then_some(tags))
 }
 
 fn indentation_depth(indent: &str, line_number: usize) -> Result<usize, AppError> {
@@ -132,10 +228,10 @@ fn build_level(
         let mut node = OutlineNode {
             id: new_id(),
             text: entry.text.clone(),
-            note: None,
+            note: entry.note.clone().filter(|note| !note.trim().is_empty()),
             collapsed: None,
-            checked: None,
-            tags: None,
+            checked: entry.checked,
+            tags: entry.tags.clone(),
             created_at: timestamp,
             updated_at: timestamp,
             children: Vec::new(),
@@ -203,5 +299,41 @@ mod tests {
 
         assert!(error.contains("第 2 行"));
         assert!(error.contains("跳级"));
+    }
+
+    #[test]
+    fn imports_task_markers_trailing_tags_and_notes() {
+        let doc = import_markdown(
+            "# Roadmap\n\n- [ ] 发布计划 #工作 #重要\n  > 备注第一行\n  > 备注第二行\n  - [x] 子任务 #done\n- 普通节点",
+        )
+        .unwrap();
+
+        let task = &doc.root.children[0];
+        assert_eq!(task.text, "发布计划");
+        assert_eq!(task.checked, Some(false));
+        assert_eq!(task.tags.as_deref(), Some(&["工作".to_string(), "重要".to_string()][..]));
+        assert_eq!(task.note.as_deref(), Some("备注第一行\n备注第二行"));
+        assert_eq!(task.children[0].checked, Some(true));
+        assert_eq!(task.children[0].tags.as_deref(), Some(&["done".to_string()][..]));
+        assert_eq!(doc.root.children[1].checked, None);
+    }
+
+    #[test]
+    fn ignores_orphan_or_wrong_depth_note_blocks() {
+        let doc = import_markdown("> orphan\n- Parent\n> wrong depth\n  > note").unwrap();
+
+        assert_eq!(doc.root.children.len(), 1);
+        assert_eq!(doc.root.children[0].text, "Parent");
+        assert_eq!(doc.root.children[0].note.as_deref(), Some("note"));
+    }
+
+    #[test]
+    fn only_extracts_contiguous_trailing_tags() {
+        let doc = import_markdown("- 讨论 #工作 计划\n- 修复 #bug #bug").unwrap();
+
+        assert_eq!(doc.root.children[0].text, "讨论 #工作 计划");
+        assert!(doc.root.children[0].tags.is_none());
+        assert_eq!(doc.root.children[1].text, "修复");
+        assert_eq!(doc.root.children[1].tags.as_deref(), Some(&["bug".to_string()][..]));
     }
 }

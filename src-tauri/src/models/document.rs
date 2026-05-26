@@ -101,6 +101,29 @@ impl OutlineNode {
             )));
         }
 
+        if let Some(tags) = &self.tags {
+            let mut seen_tags = HashSet::new();
+            for tag in tags {
+                if tag.trim().is_empty() {
+                    return Err(AppError::Validation(format!(
+                        "{location} 节点标签不能为空"
+                    )));
+                }
+
+                if tag.contains('\n') || tag.contains('\r') {
+                    return Err(AppError::Validation(format!(
+                        "{location} 节点标签不能包含换行"
+                    )));
+                }
+
+                if !seen_tags.insert(tag) {
+                    return Err(AppError::Validation(format!(
+                        "{location} 节点标签重复: {tag}"
+                    )));
+                }
+            }
+        }
+
         for (index, child) in self.children.iter().enumerate() {
             child.validate_recursive(&format!("{location}.children[{index}]"), seen_ids)?;
         }
@@ -199,5 +222,20 @@ mod tests {
         let mut doc = sample_doc();
         doc.version = 0;
         assert!(doc.validate().unwrap_err().to_string().contains("版本"));
+    }
+
+    #[test]
+    fn rejects_invalid_node_tags() {
+        let mut doc = sample_doc();
+        doc.root.children[0].tags = Some(vec!["工作".to_string(), "工作".to_string()]);
+        assert!(doc.validate().unwrap_err().to_string().contains("标签重复"));
+
+        let mut doc = sample_doc();
+        doc.root.children[0].tags = Some(vec![" ".to_string()]);
+        assert!(doc.validate().unwrap_err().to_string().contains("标签不能为空"));
+
+        let mut doc = sample_doc();
+        doc.root.children[0].tags = Some(vec!["bad\ntag".to_string()]);
+        assert!(doc.validate().unwrap_err().to_string().contains("标签不能包含换行"));
     }
 }

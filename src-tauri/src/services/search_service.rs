@@ -1,4 +1,6 @@
-use crate::models::{OutlineDocument, OutlineNode, SearchResult};
+use crate::models::{
+    OutlineDocument, OutlineNode, SearchMatch, SearchMatchSource, SearchResult,
+};
 
 pub fn search_document(doc: &OutlineDocument, query: &str) -> Vec<SearchResult> {
     let normalized_query = query.trim().to_lowercase();
@@ -18,14 +20,63 @@ fn search_node(
     results: &mut Vec<SearchResult>,
     is_root: bool,
 ) {
-    let matches = find_match_indices(&node.text, normalized_query);
+    let text_matches = find_match_indices(&node.text, normalized_query);
+    let note_matches = node
+        .note
+        .as_ref()
+        .map(|note| find_match_indices(note, normalized_query))
+        .unwrap_or_default();
+    let tag_matches = node
+        .tags
+        .as_ref()
+        .map(|tags| {
+            tags.iter()
+                .filter_map(|tag| {
+                    let indices = find_match_indices(tag, normalized_query);
+                    (!indices.is_empty()).then_some(SearchMatch {
+                        source: SearchMatchSource::Tag,
+                        value: tag.clone(),
+                        match_indices: indices,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
 
-    if !matches.is_empty() {
+    if !text_matches.is_empty() || !note_matches.is_empty() || !tag_matches.is_empty() {
+        let mut match_sources = Vec::new();
+        let mut matches = Vec::new();
+
+        if !text_matches.is_empty() {
+            match_sources.push(SearchMatchSource::Text);
+            matches.push(SearchMatch {
+                source: SearchMatchSource::Text,
+                value: node.text.clone(),
+                match_indices: text_matches.clone(),
+            });
+        }
+
+        if !note_matches.is_empty() {
+            match_sources.push(SearchMatchSource::Note);
+            matches.push(SearchMatch {
+                source: SearchMatchSource::Note,
+                value: node.note.clone().unwrap_or_default(),
+                match_indices: note_matches,
+            });
+        }
+
+        if !tag_matches.is_empty() {
+            match_sources.push(SearchMatchSource::Tag);
+            matches.extend(tag_matches);
+        }
+
         results.push(SearchResult {
             node_id: node.id.clone(),
             text: node.text.clone(),
             path: parent_path.clone(),
-            match_indices: matches,
+            match_indices: text_matches,
+            match_sources,
+            matches,
         });
     }
 
@@ -79,7 +130,7 @@ fn byte_to_utf16_position(positions: &[(usize, usize)], byte_offset: usize) -> O
 
 #[cfg(test)]
 mod tests {
-    use crate::models::{OutlineDocument, OutlineNode};
+    use crate::models::{OutlineDocument, OutlineNode, SearchMatchSource};
 
     use super::search_document;
 
@@ -122,6 +173,7 @@ mod tests {
         assert_eq!(results[0].node_id, "a");
         assert_eq!(results[0].path, Vec::<String>::new());
         assert_eq!(results[0].match_indices, vec![(0, 4)]);
+        assert_eq!(results[0].match_sources, vec![SearchMatchSource::Text]);
         assert_eq!(results[1].node_id, "b");
         assert_eq!(results[1].path, vec!["Planning".to_string()]);
         assert_eq!(results[1].match_indices, vec![(4, 8), (13, 17)]);
@@ -160,5 +212,57 @@ mod tests {
         assert_eq!(document_matches[0].match_indices, vec![(0, 2)]);
         assert_eq!(emoji_matches[0].match_indices, vec![(2, 4)]);
         assert_eq!(suffix_matches[0].match_indices, vec![(4, 6)]);
+    }
+
+    #[test]
+    fn searches_note_and_tags_with_source_details() {
+        let mut child = node("a", "发布计划", Vec::new());
+        child.note = Some("测试通过后发布".to_string());
+        child.tags = Some(vec!["发布".to_string(), "版本".to_string()]);
+        let doc = OutlineDocument {
+            id: "doc".to_string(),
+            title: "Doc".to_string(),
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+            root: node("root", "Root", vec![child]),
+        };
+
+        let results = search_document(&doc, "发布");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].node_id, "a");
+        assert_eq!(
+            results[0].match_sources,
+            vec![
+                SearchMatchSource::Text,
+                SearchMatchSource::Note,
+                SearchMatchSource::Tag
+            ]
+        );
+        assert_eq!(results[0].matches.len(), 3);
+        assert_eq!(results[0].matches[2].value, "发布");
+    }
+
+    #[test]
+    fn note_or_tag_only_match_keeps_text_match_indices_empty() {
+        let mut child = node("a", "任务节点", Vec::new());
+        child.note = Some("包含备注关键词".to_string());
+        child.tags = Some(vec!["上下文".to_string()]);
+        let doc = OutlineDocument {
+            id: "doc".to_string(),
+            title: "Doc".to_string(),
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+            root: node("root", "Root", vec![child]),
+        };
+
+        let results = search_document(&doc, "备注");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].match_indices, Vec::<(usize, usize)>::new());
+        assert_eq!(results[0].match_sources, vec![SearchMatchSource::Note]);
+        assert_eq!(results[0].matches[0].value, "包含备注关键词");
     }
 }

@@ -8,6 +8,7 @@ export const OutlineEditor: React.FC = () => {
   const currentDoc = useDocumentStore((s) => s.currentDoc)
   const selectedNodeId = useDocumentStore((s) => s.selectedNodeId)
   const collapsedNodeIds = useDocumentStore((s) => s.collapsedNodeIds)
+  const filter = useDocumentStore((s) => s.filter)
   
   const selectNode = useDocumentStore((s) => s.selectNode)
   const updateNodeText = useDocumentStore((s) => s.updateNodeText)
@@ -17,8 +18,8 @@ export const OutlineEditor: React.FC = () => {
 
   const visibleNodes = React.useMemo(() => {
     if (!currentDoc) return []
-    return getVisibleNodes(currentDoc.root, collapsedNodeIds)
-  }, [currentDoc, collapsedNodeIds])
+    return getVisibleNodes(currentDoc.root, collapsedNodeIds, filter)
+  }, [currentDoc, collapsedNodeIds, filter])
 
   const handleNavigate = (nodeId: string, direction: 'up' | 'down') => {
     const index = visibleNodes.findIndex((n) => n.node.id === nodeId)

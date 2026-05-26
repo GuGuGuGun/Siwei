@@ -45,4 +45,27 @@ describe('siweiApi', () => {
       query: '节点',
     })
   })
+
+  it('returns enhanced search result contracts from the stable wrapper', async () => {
+    const doc = createDocument()
+    invokeMock.mockResolvedValueOnce([
+      {
+        nodeId: 'node-1',
+        text: '节点备注',
+        path: [],
+        matchIndices: [[0, 2]],
+        matchSources: ['text', 'note', 'tag'],
+        matches: [
+          { source: 'text', value: '节点备注', matchIndices: [[0, 2]] },
+          { source: 'note', value: '备注内容', matchIndices: [[0, 2]] },
+          { source: 'tag', value: '备注', matchIndices: [[0, 2]] },
+        ],
+      },
+    ])
+
+    const results = await api.searchDocument(doc, '备注')
+
+    expect(results[0].matchSources).toEqual(['text', 'note', 'tag'])
+    expect(results[0].matches[2].value).toBe('备注')
+  })
 })

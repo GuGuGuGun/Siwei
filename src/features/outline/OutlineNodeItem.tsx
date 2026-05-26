@@ -2,6 +2,8 @@ import React from 'react'
 import { OutlineNode } from '../../types/document'
 import { useDocumentStore } from '../document/documentStore'
 import { toast } from '../../components/common/Toast'
+import { NodeNoteEditor } from './NodeNoteEditor'
+import { NodeTagEditor } from './NodeTagEditor'
 
 interface OutlineNodeItemProps {
   node: OutlineNode
@@ -79,7 +81,8 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   const moveNodeToSibling = useDocumentStore((s) => s.moveNodeToSibling)
   const insertNode = useDocumentStore((s) => s.insertNode)
   const deleteNode = useDocumentStore((s) => s.deleteNode)
-  const toggleNodeCheck = useDocumentStore((s) => s.toggleNodeCheck)
+  const toggleNodeChecked = useDocumentStore((s) => s.toggleNodeChecked)
+  const setNodeChecked = useDocumentStore((s) => s.setNodeChecked)
   const beginTextEditSession = useDocumentStore((s) => s.beginTextEditSession)
   const commitTextEditSession = useDocumentStore((s) => s.commitTextEditSession)
 
@@ -120,7 +123,7 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
     // 2. Run action
     switch (key) {
       case 'todo':
-        toggleNodeCheck(node.id)
+        toggleNodeChecked(node.id)
         toast.info('已应用待办属性')
         break
       case 'indent':
@@ -228,7 +231,7 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
       default:
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
           e.preventDefault()
-          toggleNodeCheck(node.id)
+          toggleNodeChecked(node.id)
         }
         break
     }
@@ -322,7 +325,7 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
         <button
           onClick={(e) => {
             e.stopPropagation()
-            toggleNodeCheck(node.id)
+            toggleNodeChecked(node.id)
           }}
           className="flex w-6 shrink-0 items-center justify-center mr-1 focus:outline-none"
         >
@@ -334,6 +337,20 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
           ) : (
             <div className="w-3.5 h-3.5 rounded border border-dashed border-amber-900/30 bg-[#FDFCFA] hover:border-amber-900/60 transition-colors" />
           )}
+        </button>
+      )}
+
+      {node.checked === undefined && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            setNodeChecked(node.id, false)
+          }}
+          className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-zinc-400 opacity-0 transition hover:bg-[#EFECE3] hover:text-zinc-700 focus:outline-none group-hover:opacity-100"
+          title="转为待办"
+        >
+          <div className="h-3.5 w-3.5 rounded border border-dashed border-amber-900/25" />
         </button>
       )}
 
@@ -361,6 +378,24 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
           >
             {node.text || <span className="text-zinc-400 italic font-normal">空白织线</span>}
           </div>
+        )}
+      </div>
+
+      <div className="ml-2 flex max-w-[40%] shrink-0 items-center gap-1 overflow-hidden">
+        <NodeTagEditor nodeId={node.id} tags={node.tags} />
+        <NodeNoteEditor nodeId={node.id} note={node.note} />
+        {node.checked !== undefined && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              setNodeChecked(node.id, undefined)
+            }}
+            className="hidden h-6 rounded-md px-1.5 text-[10px] text-zinc-400 hover:bg-[#EFECE3] hover:text-zinc-700 focus:outline-none group-hover:block"
+            title="移除待办状态"
+          >
+            普通
+          </button>
         )}
       </div>
 
