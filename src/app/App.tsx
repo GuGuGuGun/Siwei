@@ -8,16 +8,20 @@ import { Dialog } from '../components/common/Dialog'
 import { ToastContainer, toast } from '../components/common/Toast'
 import { useDocumentStore } from '../features/document/documentStore'
 import { openFileDialog, saveFileDialog } from '../services/siweiApi'
-import { Search, Save, FileOutput, FileInput, Grid, List, Columns, Sparkles } from 'lucide-react'
+import { Search, Save, FileOutput, FileInput, Grid, List, Columns, Sparkles, Undo2, Redo2 } from 'lucide-react'
 
 export const App: React.FC = () => {
   const currentDoc = useDocumentStore((s) => s.currentDoc)
   const viewMode = useDocumentStore((s) => s.viewMode)
   const isDirty = useDocumentStore((s) => s.isDirty)
   const currentFilePath = useDocumentStore((s) => s.currentFilePath)
+  const canUndo = useDocumentStore((s) => s.canUndo)
+  const canRedo = useDocumentStore((s) => s.canRedo)
 
   const newDoc = useDocumentStore((s) => s.newDoc)
   const saveDoc = useDocumentStore((s) => s.saveDoc)
+  const undo = useDocumentStore((s) => s.undo)
+  const redo = useDocumentStore((s) => s.redo)
   const exportDoc = useDocumentStore((s) => s.exportDoc)
   const importDoc = useDocumentStore((s) => s.importDoc)
   const canDiscardCurrentDoc = useDocumentStore((s) => s.canDiscardCurrentDoc)
@@ -52,6 +56,14 @@ export const App: React.FC = () => {
           if (success) toast.success('已自动缝合保存至本地')
         })
       }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          redo()
+        } else {
+          undo()
+        }
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         setIsSearchOpen((prev) => !prev)
@@ -78,7 +90,7 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', handleGlobalKeyDown)
     return () => window.removeEventListener('keydown', handleGlobalKeyDown)
-  }, [currentDoc, currentFilePath, canDiscardCurrentDoc])
+  }, [currentDoc, currentFilePath, canDiscardCurrentDoc, undo, redo])
 
   const handleImport = async (format: 'json' | 'markdown') => {
     if (!canDiscardCurrentDoc()) return
@@ -166,6 +178,26 @@ export const App: React.FC = () => {
 
           {/* Right: Actions */}
           <div className="flex-1 flex items-center justify-end gap-1.5">
+            <button
+              onClick={undo}
+              disabled={!canUndo}
+              className="btn-patch-light flex h-8 w-8 items-center justify-center rounded-md focus:outline-none disabled:cursor-not-allowed disabled:opacity-35"
+              title="撤销 (Ctrl+Z)"
+            >
+              <Undo2 size={15} />
+            </button>
+
+            <button
+              onClick={redo}
+              disabled={!canRedo}
+              className="btn-patch-light flex h-8 w-8 items-center justify-center rounded-md focus:outline-none disabled:cursor-not-allowed disabled:opacity-35"
+              title="重做 (Ctrl+Shift+Z)"
+            >
+              <Redo2 size={15} />
+            </button>
+
+            <div className="h-4 w-[1px] bg-zinc-200 mx-1" />
+
             <button
               onClick={() => setIsSearchOpen(true)}
               className="btn-patch-light flex h-8 w-8 items-center justify-center rounded-md focus:outline-none"

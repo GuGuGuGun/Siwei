@@ -17,6 +17,19 @@ import {
 export type ViewMode = 'outline' | 'mindmap' | 'split'
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
+interface HistorySnapshot {
+  currentDoc: OutlineDocument
+  selectedNodeId: string | null
+  collapsedNodeIds: string[]
+  key: string
+}
+
+interface TextEditSession {
+  nodeId: string
+  before: HistorySnapshot
+  didChange: boolean
+}
+
 interface DocumentState {
   currentDoc: OutlineDocument | null
   viewMode: ViewMode
@@ -25,6 +38,12 @@ interface DocumentState {
   isDirty: boolean
   saveStatus: SaveStatus
   currentFilePath: string | null
+  canUndo: boolean
+  canRedo: boolean
+  undoStack: HistorySnapshot[]
+  redoStack: HistorySnapshot[]
+  cleanSnapshotKey: string | null
+  activeTextEditSession: TextEditSession | null
 
   // Document management actions
   newDoc: () => Promise<void>
@@ -45,9 +64,123 @@ interface DocumentState {
   insertNode: (nodeId: string, text?: string) => string | null
   deleteNode: (nodeId: string) => void
   toggleNodeCheck: (nodeId: string) => void
+
+  // History actions
+  undo: () => void
+  redo: () => void
+  beginTextEditSession: (nodeId: string) => void
+  commitTextEditSession: (nodeId: string) => void
 }
 
 export const useDocumentStore = create<DocumentState>((set, get) => {
+  const cloneDocument = (doc: OutlineDocument): OutlineDocument => JSON.parse(JSON.stringify(doc)) as OutlineDocument
+
+  const createSnapshot = (
+    currentDoc: OutlineDocument,
+    selectedNodeId: string | null,
+    collapsedNodeIds: Set<string>,
+  ): HistorySnapshot => {
+    const collapsedIds = [...collapsedNodeIds].sort()
+    const doc = cloneDocument(currentDoc)
+    const key = JSON.stringify({
+      currentDoc: doc,
+      selectedNodeId,
+      collapsedNodeIds: collapsedIds,
+    })
+
+    return {
+      currentDoc: doc,
+      selectedNodeId,
+      collapsedNodeIds: collapsedIds,
+      key,
+    }
+  }
+
+  const getCurrentSnapshot = (): HistorySnapshot | null => {
+    const { currentDoc, selectedNodeId, collapsedNodeIds } = get()
+    if (!currentDoc) return null
+
+    return createSnapshot(currentDoc, selectedNodeId, collapsedNodeIds)
+  }
+
+  const restoreSnapshot = (
+    snapshot: HistorySnapshot,
+    undoStack: HistorySnapshot[],
+    redoStack: HistorySnapshot[],
+  ) => {
+    const { cleanSnapshotKey } = get()
+    set({
+      currentDoc: cloneDocument(snapshot.currentDoc),
+      selectedNodeId: snapshot.selectedNodeId,
+      collapsedNodeIds: new Set(snapshot.collapsedNodeIds),
+      undoStack,
+      redoStack,
+      canUndo: undoStack.length > 0,
+      canRedo: redoStack.length > 0,
+      activeTextEditSession: null,
+      isDirty: cleanSnapshotKey === null ? true : snapshot.key !== cleanSnapshotKey,
+    })
+  }
+
+  const setHistoryAfterMutation = (before: HistorySnapshot) => {
+    const after = getCurrentSnapshot()
+    if (!after || after.key === before.key) return
+
+    set((state) => ({
+      undoStack: [...state.undoStack, before],
+      redoStack: [],
+      canUndo: true,
+      canRedo: false,
+      isDirty: state.cleanSnapshotKey === null ? true : after.key !== state.cleanSnapshotKey,
+    }))
+  }
+
+  const clearHistoryState = (
+    doc: OutlineDocument,
+    selectedNodeId: string | null,
+    collapsedNodeIds: Set<string>,
+    options: { isDirty: boolean },
+  ) => {
+    const snapshot = createSnapshot(doc, selectedNodeId, collapsedNodeIds)
+
+    return {
+      undoStack: [],
+      redoStack: [],
+      canUndo: false,
+      canRedo: false,
+      activeTextEditSession: null,
+      cleanSnapshotKey: options.isDirty ? null : snapshot.key,
+    }
+  }
+
+  const finalizeActiveTextEditSession = () => {
+    const session = get().activeTextEditSession
+    if (!session) return
+
+    const after = getCurrentSnapshot()
+    if (!after || !session.didChange || after.key === session.before.key) {
+      set((state) => ({
+        activeTextEditSession: null,
+        canUndo: state.undoStack.length > 0,
+      }))
+      return
+    }
+
+    set((state) => ({
+      undoStack: [...state.undoStack, session.before],
+      redoStack: [],
+      activeTextEditSession: null,
+      canUndo: true,
+      canRedo: false,
+      isDirty: state.cleanSnapshotKey === null ? true : after.key !== state.cleanSnapshotKey,
+    }))
+  }
+
+  const beginMutation = (): HistorySnapshot | null => {
+    finalizeActiveTextEditSession()
+    return getCurrentSnapshot()
+  }
+
   // Helper to extract collapsed node IDs recursively
   const collectCollapsedIds = (node: OutlineNode, ids: Set<string>) => {
     if (node.collapsed) {
@@ -64,6 +197,12 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     isDirty: false,
     saveStatus: 'idle',
     currentFilePath: null,
+    canUndo: false,
+    canRedo: false,
+    undoStack: [],
+    redoStack: [],
+    cleanSnapshotKey: null,
+    activeTextEditSession: null,
 
     canDiscardCurrentDoc: () => {
       const { isDirty } = get()
@@ -91,6 +230,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           collapsedNodeIds: collapsedIds,
           selectedNodeId: firstNodeId,
           saveStatus: 'idle',
+          ...clearHistoryState(doc, firstNodeId, collapsedIds, { isDirty: false }),
         })
       } catch (error) {
         console.error('Error creating new document:', error)
@@ -112,6 +252,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           collapsedNodeIds: collapsedIds,
           selectedNodeId: firstNodeId,
           saveStatus: 'idle',
+          ...clearHistoryState(doc, firstNodeId, collapsedIds, { isDirty: false }),
         })
 
         // Add to recents
@@ -158,10 +299,17 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         await api.saveDocument(path, updatedDoc)
 
         set((latestState) => {
+          const cleanSnapshot = createSnapshot(updatedDoc, latestState.selectedNodeId, latestState.collapsedNodeIds)
+
           if (latestState.currentDoc !== state.currentDoc) {
+            const latestSnapshot = latestState.currentDoc
+              ? createSnapshot(latestState.currentDoc, latestState.selectedNodeId, latestState.collapsedNodeIds)
+              : null
+
             return {
               currentFilePath: path,
-              isDirty: true,
+              cleanSnapshotKey: cleanSnapshot.key,
+              isDirty: latestSnapshot ? latestSnapshot.key !== cleanSnapshot.key : true,
               saveStatus: 'saved',
             }
           }
@@ -169,6 +317,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           return {
             currentDoc: updatedDoc,
             currentFilePath: path,
+            cleanSnapshotKey: cleanSnapshot.key,
             isDirty: false,
             saveStatus: 'saved',
           }
@@ -239,6 +388,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           collapsedNodeIds: collapsedIds,
           selectedNodeId: doc.root.children.length > 0 ? doc.root.children[0].id : doc.root.id,
           saveStatus: 'idle',
+          ...clearHistoryState(doc, doc.root.children.length > 0 ? doc.root.children[0].id : doc.root.id, collapsedIds, {
+            isDirty: true,
+          }),
         })
       } catch (error) {
         console.error('Error importing document:', error)
@@ -250,29 +402,49 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     updateNodeText: (nodeId, text) => {
       const { currentDoc } = get()
       if (!currentDoc) return
+      const activeSession = get().activeTextEditSession
+      const shouldRecordImmediately = activeSession?.nodeId !== nodeId
+      const before = shouldRecordImmediately ? beginMutation() : null
 
       const now = Date.now()
 
       // If updating the root node (document title)
       if (currentDoc.root.id === nodeId) {
-        set({
-          currentDoc: {
-            ...currentDoc,
-            title: text,
+        if (currentDoc.root.text === text && currentDoc.title === text) return
+
+        const updatedDoc = {
+          ...currentDoc,
+          title: text,
+          updatedAt: now,
+          root: {
+            ...currentDoc.root,
+            text: text,
             updatedAt: now,
-            root: {
-              ...currentDoc.root,
-              text: text,
-              updatedAt: now,
-            },
           },
-          isDirty: true,
-        })
+        }
+        set((state) => ({
+          currentDoc: updatedDoc,
+          isDirty: state.cleanSnapshotKey === null
+            ? true
+            : createSnapshot(updatedDoc, state.selectedNodeId, state.collapsedNodeIds).key !== state.cleanSnapshotKey,
+          activeTextEditSession: state.activeTextEditSession?.nodeId === nodeId
+            ? { ...state.activeTextEditSession, didChange: true }
+            : state.activeTextEditSession,
+          canUndo: state.activeTextEditSession?.nodeId === nodeId ? true : state.canUndo,
+          canRedo: state.activeTextEditSession?.nodeId === nodeId ? false : state.canRedo,
+        }))
+        if (before) setHistoryAfterMutation(before)
         return
       }
 
       const path = findPath(currentDoc.root, nodeId)
       if (!path) return
+
+      let currentNode: OutlineNode = currentDoc.root
+      for (const idx of path) {
+        currentNode = currentNode.children[idx]
+      }
+      if (currentNode.text === text) return
 
       const newRoot = updateNodeAtPath(currentDoc.root, path, (node) => ({
         ...node,
@@ -280,17 +452,30 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         updatedAt: now,
       }))
 
-      set({
-        currentDoc: {
-          ...currentDoc,
-          root: newRoot,
-          updatedAt: now,
-        },
-        isDirty: true,
-      })
+      const updatedDoc = {
+        ...currentDoc,
+        root: newRoot,
+        updatedAt: now,
+      }
+
+      set((state) => ({
+        currentDoc: updatedDoc,
+        isDirty: state.cleanSnapshotKey === null
+          ? true
+          : createSnapshot(updatedDoc, state.selectedNodeId, state.collapsedNodeIds).key !== state.cleanSnapshotKey,
+        activeTextEditSession: state.activeTextEditSession?.nodeId === nodeId
+          ? { ...state.activeTextEditSession, didChange: true }
+          : state.activeTextEditSession,
+        canUndo: state.activeTextEditSession?.nodeId === nodeId ? true : state.canUndo,
+        canRedo: state.activeTextEditSession?.nodeId === nodeId ? false : state.canRedo,
+      }))
+      if (before) setHistoryAfterMutation(before)
     },
 
     toggleCollapse: (nodeId) => {
+      const before = beginMutation()
+      if (!before) return
+
       set((state) => {
         const newCollapsed = new Set(state.collapsedNodeIds)
         if (newCollapsed.has(nodeId)) {
@@ -303,16 +488,20 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           isDirty: true,
         }
       })
+      setHistoryAfterMutation(before)
     },
 
     indentNode: (nodeId) => {
+      const before = beginMutation()
       const { currentDoc } = get()
-      if (!currentDoc) return
+      if (!currentDoc || !before) return
 
       const path = findPath(currentDoc.root, nodeId)
       if (!path) return
 
       const newRoot = indentNodeAtPath(currentDoc.root, path)
+      if (newRoot === currentDoc.root) return
+
       set({
         currentDoc: {
           ...currentDoc,
@@ -321,16 +510,20 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         },
         isDirty: true,
       })
+      setHistoryAfterMutation(before)
     },
 
     outdentNode: (nodeId) => {
+      const before = beginMutation()
       const { currentDoc } = get()
-      if (!currentDoc) return
+      if (!currentDoc || !before) return
 
       const path = findPath(currentDoc.root, nodeId)
       if (!path) return
 
       const newRoot = outdentNodeAtPath(currentDoc.root, path)
+      if (newRoot === currentDoc.root) return
+
       set({
         currentDoc: {
           ...currentDoc,
@@ -339,11 +532,13 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         },
         isDirty: true,
       })
+      setHistoryAfterMutation(before)
     },
 
     moveNode: (nodeId, direction) => {
+      const before = beginMutation()
       const { currentDoc } = get()
-      if (!currentDoc) return
+      if (!currentDoc || !before) return
 
       const path = findPath(currentDoc.root, nodeId)
       if (!path) return
@@ -352,6 +547,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         direction === 'up'
           ? moveNodeUpAtPath(currentDoc.root, path)
           : moveNodeDownAtPath(currentDoc.root, path)
+      if (newRoot === currentDoc.root) return
 
       set({
         currentDoc: {
@@ -361,11 +557,13 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         },
         isDirty: true,
       })
+      setHistoryAfterMutation(before)
     },
 
     insertNode: (nodeId, text = '') => {
+      const before = beginMutation()
       const { currentDoc } = get()
-      if (!currentDoc) return null
+      if (!currentDoc || !before) return null
 
       const newId = generateId()
       const now = Date.now()
@@ -391,6 +589,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           selectedNodeId: newId,
           isDirty: true,
         })
+        setHistoryAfterMutation(before)
         return newId
       }
 
@@ -421,6 +620,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           selectedNodeId: newId,
           isDirty: true,
         })
+        setHistoryAfterMutation(before)
         return newId
       }
 
@@ -435,12 +635,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         selectedNodeId: newId,
         isDirty: true,
       })
+      setHistoryAfterMutation(before)
       return newId
     },
 
     deleteNode: (nodeId) => {
+      const before = beginMutation()
       const { currentDoc, selectedNodeId } = get()
-      if (!currentDoc || currentDoc.root.id === nodeId) return // Cannot delete root
+      if (!currentDoc || !before || currentDoc.root.id === nodeId) return // Cannot delete root
 
       const path = findPath(currentDoc.root, nodeId)
       if (!path) return
@@ -475,11 +677,13 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         selectedNodeId: selectedNodeId === nodeId ? nextFocusId : selectedNodeId,
         isDirty: true,
       })
+      setHistoryAfterMutation(before)
     },
 
     toggleNodeCheck: (nodeId) => {
+      const before = beginMutation()
       const { currentDoc } = get()
-      if (!currentDoc) return
+      if (!currentDoc || !before) return
 
       const path = findPath(currentDoc.root, nodeId)
       if (!path) return
@@ -498,6 +702,55 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         },
         isDirty: true,
       })
+      setHistoryAfterMutation(before)
+    },
+
+    undo: () => {
+      finalizeActiveTextEditSession()
+      const { undoStack } = get()
+      if (undoStack.length === 0) return
+
+      const current = getCurrentSnapshot()
+      if (!current) return
+
+      const previous = undoStack[undoStack.length - 1]
+      restoreSnapshot(previous, undoStack.slice(0, -1), [current, ...get().redoStack])
+    },
+
+    redo: () => {
+      finalizeActiveTextEditSession()
+      const { redoStack } = get()
+      if (redoStack.length === 0) return
+
+      const current = getCurrentSnapshot()
+      if (!current) return
+
+      const next = redoStack[0]
+      restoreSnapshot(next, [...get().undoStack, current], redoStack.slice(1))
+    },
+
+    beginTextEditSession: (nodeId) => {
+      const activeSession = get().activeTextEditSession
+      if (activeSession?.nodeId === nodeId) return
+
+      finalizeActiveTextEditSession()
+      const before = getCurrentSnapshot()
+      if (!before) return
+
+      set({
+        activeTextEditSession: {
+          nodeId,
+          before,
+          didChange: false,
+        },
+      })
+    },
+
+    commitTextEditSession: (nodeId) => {
+      const activeSession = get().activeTextEditSession
+      if (activeSession?.nodeId !== nodeId) return
+
+      finalizeActiveTextEditSession()
     },
   }
 })

@@ -79,6 +79,8 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   const insertNode = useDocumentStore((s) => s.insertNode)
   const deleteNode = useDocumentStore((s) => s.deleteNode)
   const toggleNodeCheck = useDocumentStore((s) => s.toggleNodeCheck)
+  const beginTextEditSession = useDocumentStore((s) => s.beginTextEditSession)
+  const commitTextEditSession = useDocumentStore((s) => s.commitTextEditSession)
 
   const inputRef = React.useRef<HTMLInputElement>(null)
   const [isComposing, setIsComposing] = React.useState(false)
@@ -310,6 +312,8 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
             ref={inputRef}
             type="text"
             value={node.text}
+            onFocus={() => beginTextEditSession(node.id)}
+            onBlur={() => commitTextEditSession(node.id)}
             onChange={handleTextChange}
             onKeyDown={handleKeyDown}
             onCompositionStart={() => setIsComposing(true)}

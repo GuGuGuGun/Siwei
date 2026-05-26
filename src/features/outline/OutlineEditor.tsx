@@ -12,6 +12,8 @@ export const OutlineEditor: React.FC = () => {
   const selectNode = useDocumentStore((s) => s.selectNode)
   const updateNodeText = useDocumentStore((s) => s.updateNodeText)
   const insertNode = useDocumentStore((s) => s.insertNode)
+  const beginTextEditSession = useDocumentStore((s) => s.beginTextEditSession)
+  const commitTextEditSession = useDocumentStore((s) => s.commitTextEditSession)
 
   const visibleNodes = React.useMemo(() => {
     if (!currentDoc) return []
@@ -58,6 +60,8 @@ export const OutlineEditor: React.FC = () => {
         <input
           type="text"
           value={currentDoc.title || ''}
+          onFocus={() => beginTextEditSession(currentDoc.root.id)}
+          onBlur={() => commitTextEditSession(currentDoc.root.id)}
           onChange={(e) => updateNodeText(currentDoc.root.id, e.target.value)}
           className="w-full bg-transparent text-2xl font-bold text-zinc-900 outline-none border-none p-0 focus:ring-0 placeholder-zinc-300 tracking-wide font-sans"
           placeholder="未命名织物"
