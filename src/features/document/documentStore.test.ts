@@ -173,6 +173,40 @@ describe('documentStore', () => {
     expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(false)
   })
 
+  it('moves a dragged node before a same-level sibling and records undo history', async () => {
+    await loadFixtureDoc()
+
+    useDocumentStore.getState().moveNodeToSibling('node-2', 'node-1')
+
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual([
+      'node-2',
+      'node-1',
+    ])
+    expect(useDocumentStore.getState().selectedNodeId).toBe('node-2')
+    expect(useDocumentStore.getState().canUndo).toBe(true)
+
+    useDocumentStore.getState().undo()
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual([
+      'node-1',
+      'node-2',
+    ])
+  })
+
+  it('ignores drag moves across different levels', async () => {
+    await loadFixtureDoc()
+
+    useDocumentStore.getState().moveNodeToSibling('node-1-1', 'node-2')
+
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual([
+      'node-1',
+      'node-2',
+    ])
+    expect(useDocumentStore.getState().currentDoc?.root.children[0].children.map((node) => node.id)).toEqual([
+      'node-1-1',
+    ])
+    expect(useDocumentStore.getState().canUndo).toBe(false)
+  })
+
   it('merges repeated text changes in one focus session into one undo record', async () => {
     await loadFixtureDoc()
 

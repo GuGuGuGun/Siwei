@@ -76,6 +76,7 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   const indentNode = useDocumentStore((s) => s.indentNode)
   const outdentNode = useDocumentStore((s) => s.outdentNode)
   const moveNode = useDocumentStore((s) => s.moveNode)
+  const moveNodeToSibling = useDocumentStore((s) => s.moveNodeToSibling)
   const insertNode = useDocumentStore((s) => s.insertNode)
   const deleteNode = useDocumentStore((s) => s.deleteNode)
   const toggleNodeCheck = useDocumentStore((s) => s.toggleNodeCheck)
@@ -248,6 +249,30 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
 
   const hasChildren = node.children && node.children.length > 0
 
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+    e.stopPropagation()
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('application/x-siwei-node-id', node.id)
+  }
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    const draggedNodeId = e.dataTransfer.types.includes('application/x-siwei-node-id')
+    if (!draggedNodeId) return
+
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const sourceNodeId = e.dataTransfer.getData('application/x-siwei-node-id')
+    if (!sourceNodeId || sourceNodeId === node.id) return
+
+    moveNodeToSibling(sourceNodeId, node.id)
+  }
+
   return (
     <div
       className={`group relative flex items-center h-9 px-2 rounded-lg transition-all duration-200 border ${
@@ -259,6 +284,8 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
         e.stopPropagation()
         selectNode(node.id)
       }}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     >
       {/* Stitch Indent Guide Lines */}
       {Array.from({ length: depth }).map((_, i) => (
@@ -269,7 +296,12 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
       ))}
 
       {/* Knit Grip Handle */}
-      <div className="flex w-5 shrink-0 items-center justify-center cursor-grab active:cursor-grabbing">
+      <div
+        draggable
+        onDragStart={handleDragStart}
+        className="flex h-full w-5 shrink-0 items-center justify-center cursor-grab active:cursor-grabbing"
+        title="拖动排序"
+      >
         <KnitGrip />
       </div>
 

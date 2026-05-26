@@ -186,6 +186,46 @@ export function moveNodeDownAtPath(
   });
 }
 
+/**
+ * Moves a node before another sibling in the same parent.
+ * Returns the original tree when paths are invalid or cross different parents.
+ */
+export function moveNodeToSiblingIndexAtPath(
+  root: OutlineNode,
+  sourcePath: number[],
+  targetPath: number[]
+): OutlineNode {
+  if (sourcePath.length === 0 || targetPath.length === 0) return root;
+
+  const sourceParentPath = sourcePath.slice(0, -1);
+  const targetParentPath = targetPath.slice(0, -1);
+  const isSameParent =
+    sourceParentPath.length === targetParentPath.length &&
+    sourceParentPath.every((value, index) => value === targetParentPath[index]);
+
+  if (!isSameParent) return root;
+
+  const sourceIndex = sourcePath[sourcePath.length - 1];
+  const targetIndex = targetPath[targetPath.length - 1];
+  if (sourceIndex === targetIndex) return root;
+
+  return updateNodeAtPath(root, sourceParentPath, (parent) => {
+    if (
+      sourceIndex < 0 ||
+      sourceIndex >= parent.children.length ||
+      targetIndex < 0 ||
+      targetIndex >= parent.children.length
+    ) {
+      return parent;
+    }
+
+    const newChildren = [...parent.children];
+    const [nodeToMove] = newChildren.splice(sourceIndex, 1);
+    newChildren.splice(targetIndex, 0, nodeToMove);
+    return { ...parent, children: newChildren };
+  });
+}
+
 export interface VisibleNodeInfo {
   node: OutlineNode;
   depth: number;

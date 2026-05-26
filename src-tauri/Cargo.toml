@@ -1,6 +1,6 @@
 [package]
 name = "siwei"
-version = "0.2.0"
+version = "0.2.1"
 description = "Siwei desktop app"
 authors = ["GuGuGuGun"]
 edition = "2021"

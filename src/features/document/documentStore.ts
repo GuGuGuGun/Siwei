@@ -11,6 +11,7 @@ import {
   outdentNodeAtPath,
   moveNodeUpAtPath,
   moveNodeDownAtPath,
+  moveNodeToSiblingIndexAtPath,
   getVisibleNodes,
 } from '../../utils/tree'
 
@@ -61,6 +62,7 @@ interface DocumentState {
   indentNode: (nodeId: string) => void
   outdentNode: (nodeId: string) => void
   moveNode: (nodeId: string, direction: 'up' | 'down') => void
+  moveNodeToSibling: (sourceNodeId: string, targetNodeId: string) => void
   insertNode: (nodeId: string, text?: string) => string | null
   deleteNode: (nodeId: string) => void
   toggleNodeCheck: (nodeId: string) => void
@@ -555,6 +557,30 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           root: newRoot,
           updatedAt: Date.now(),
         },
+        isDirty: true,
+      })
+      setHistoryAfterMutation(before)
+    },
+
+    moveNodeToSibling: (sourceNodeId, targetNodeId) => {
+      const before = beginMutation()
+      const { currentDoc } = get()
+      if (!currentDoc || !before || sourceNodeId === targetNodeId) return
+
+      const sourcePath = findPath(currentDoc.root, sourceNodeId)
+      const targetPath = findPath(currentDoc.root, targetNodeId)
+      if (!sourcePath || !targetPath) return
+
+      const newRoot = moveNodeToSiblingIndexAtPath(currentDoc.root, sourcePath, targetPath)
+      if (newRoot === currentDoc.root) return
+
+      set({
+        currentDoc: {
+          ...currentDoc,
+          root: newRoot,
+          updatedAt: Date.now(),
+        },
+        selectedNodeId: sourceNodeId,
         isDirty: true,
       })
       setHistoryAfterMutation(before)
