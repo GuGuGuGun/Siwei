@@ -31,7 +31,7 @@ interface MindMapEditingState {
 
 const nodeTypes = {
   custom: MindMapNode,
-  input: MindMapNode,
+  root: MindMapNode,
 }
 
 const isTextInputTarget = (target: EventTarget | null): boolean => {

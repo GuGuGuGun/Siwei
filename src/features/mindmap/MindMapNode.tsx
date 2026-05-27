@@ -24,7 +24,7 @@ export interface MindMapNodeData {
 }
 
 export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, selected, type }) => {
-  const isRoot = type === 'input'
+  const isRoot = type === 'root'
   const hasChildren = data.childCount > 0
 
   return (

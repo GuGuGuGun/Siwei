@@ -23,7 +23,7 @@ export function outlineToGraph(
       id: node.id,
       position: { x: 0, y: 0 },
       data: { label: node.text || ' ' },
-      type: parentId === null ? 'input' : 'custom',
+      type: parentId === null ? 'root' : 'custom',
     })
 
     // If there is a parent, draw a dashed stitching thread edge
