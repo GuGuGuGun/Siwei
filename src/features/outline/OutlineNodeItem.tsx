@@ -392,8 +392,13 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
         )}
       </div>
 
-      <div className="ml-2 flex max-w-[40%] shrink-0 items-center gap-1 overflow-hidden">
-        <NodeTagEditor nodeId={node.id} tags={node.tags} />
+      <div
+        data-node-actions
+        className="ml-2 flex max-w-[40%] shrink-0 items-center gap-1 overflow-visible"
+      >
+        <div className="min-w-0 overflow-hidden">
+          <NodeTagEditor nodeId={node.id} tags={node.tags} />
+        </div>
         <NodeNoteEditor nodeId={node.id} note={node.note} />
         {node.checked !== undefined && (
           <button

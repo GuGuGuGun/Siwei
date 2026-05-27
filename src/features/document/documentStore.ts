@@ -400,6 +400,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           lastOpenedAt: Date.now(),
         })
 
+        Promise.resolve(api.refreshLibraryDoc(path)).catch((error) => {
+          console.error('Error refreshing library index after save:', error)
+        })
+
         setTimeout(() => {
           if (get().saveStatus === 'saved') {
             set({ saveStatus: 'idle' })

@@ -25,6 +25,9 @@ pub enum AppError {
     #[error("Markdown 解析失败: {0}")]
     MarkdownParse(String),
 
+    #[error("数据库操作失败: {0}")]
+    Database(String),
+
     #[error("数据校验失败: {0}")]
     Validation(String),
 

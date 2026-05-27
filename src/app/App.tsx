@@ -4,9 +4,11 @@ import { StatusBar } from '../components/layout/StatusBar'
 import { OutlineEditor } from '../features/outline/OutlineEditor'
 import { MindMapView } from '../features/mindmap/MindMapView'
 import { SearchPanel } from '../features/search/SearchPanel'
+import { LibraryWorkspace } from '../features/library/LibraryWorkspace'
 import { Dialog } from '../components/common/Dialog'
 import { ToastContainer, toast } from '../components/common/Toast'
 import { useDocumentStore } from '../features/document/documentStore'
+import { useLibraryStore } from '../features/library/libraryStore'
 import { openFileDialog, saveFileDialog } from '../services/siweiApi'
 import { Search, Save, FileOutput, FileInput, Grid, List, Columns, Sparkles, Undo2, Redo2 } from 'lucide-react'
 
@@ -17,6 +19,7 @@ export const App: React.FC = () => {
   const currentFilePath = useDocumentStore((s) => s.currentFilePath)
   const canUndo = useDocumentStore((s) => s.canUndo)
   const canRedo = useDocumentStore((s) => s.canRedo)
+  const activeLibraryView = useLibraryStore((s) => s.activeView)
 
   const newDoc = useDocumentStore((s) => s.newDoc)
   const saveDoc = useDocumentStore((s) => s.saveDoc)
@@ -239,19 +242,25 @@ export const App: React.FC = () => {
 
         {/* Content Workspace Area */}
         <main className="flex-1 overflow-hidden relative bg-linen">
-          {viewMode === 'outline' && <OutlineEditor />}
+          {activeLibraryView ? (
+            <LibraryWorkspace />
+          ) : (
+            <>
+              {viewMode === 'outline' && <OutlineEditor />}
 
-          {viewMode === 'mindmap' && <MindMapView />}
+              {viewMode === 'mindmap' && <MindMapView />}
 
-          {viewMode === 'split' && (
-            <div className="flex h-full w-full">
-              <div className="w-1/2 h-full overflow-hidden border-r border-zinc-200/60">
-                <OutlineEditor />
-              </div>
-              <div className="w-1/2 h-full overflow-hidden bg-[#FDFDFD]">
-                <MindMapView />
-              </div>
-            </div>
+              {viewMode === 'split' && (
+                <div className="flex h-full w-full">
+                  <div className="w-1/2 h-full overflow-hidden border-r border-zinc-200/60">
+                    <OutlineEditor />
+                  </div>
+                  <div className="w-1/2 h-full overflow-hidden bg-[#FDFDFD]">
+                    <MindMapView />
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </main>
 

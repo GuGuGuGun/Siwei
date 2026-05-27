@@ -68,4 +68,28 @@ describe('siweiApi', () => {
     expect(results[0].matchSources).toEqual(['text', 'note', 'tag'])
     expect(results[0].matches[2].value).toBe('备注')
   })
+
+  it('wraps library commands with stable camelCase payload fields', async () => {
+    invokeMock.mockResolvedValue(undefined)
+
+    await api.addLibraryDoc('demo.siwei.json')
+    await api.refreshLibraryDoc('demo.siwei.json')
+    await api.searchLibrary('节点')
+    await api.toggleLibraryTask('demo.siwei.json', 'node-1', true)
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'add_library_doc', {
+      path: 'demo.siwei.json',
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'refresh_library_doc', {
+      path: 'demo.siwei.json',
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'search_library', {
+      query: '节点',
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'toggle_library_task', {
+      documentPath: 'demo.siwei.json',
+      nodeId: 'node-1',
+      checked: true,
+    })
+  })
 })

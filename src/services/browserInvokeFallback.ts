@@ -1,4 +1,10 @@
 import type { OutlineDocument, RecentDocItem, SearchResult } from '../types/document'
+import type {
+  LibraryDocumentItem,
+  LibrarySearchResult,
+  LibraryTagSummary,
+  LibraryTaskSummary,
+} from '../types/library'
 
 type CommandArgs = Record<string, unknown> | undefined
 
@@ -33,6 +39,7 @@ function createDemoDocument(): OutlineDocument {
 
 let currentDoc = createDemoDocument()
 let recentDocs: RecentDocItem[] = []
+let libraryDocs: LibraryDocumentItem[] = []
 
 function searchNode(
   node: OutlineDocument['root'],
@@ -136,7 +143,140 @@ export async function browserInvokeFallback<T>(command: string, args?: CommandAr
       searchNode(doc.root, query, [], results)
       return results as T
     }
+    case 'get_library_docs':
+    case 'refresh_library':
+    case 'rebuild_library_index':
+      return libraryDocs as T
+    case 'add_library_doc':
+    case 'refresh_library_doc': {
+      const path = String(args?.path ?? 'demo.siwei.json')
+      const item: LibraryDocumentItem = {
+        documentId: currentDoc.id,
+        title: currentDoc.title,
+        path,
+        updatedAt: currentDoc.updatedAt,
+        indexedAt: now(),
+        fileMtime: now(),
+        nodeCount: countNodes(currentDoc.root),
+        taskCount: collectTasks(currentDoc.root).length,
+        uncheckedTaskCount: collectTasks(currentDoc.root).filter((task) => !task.checked).length,
+        tags: collectTags(currentDoc.root),
+        status: 'ready',
+      }
+      libraryDocs = [item, ...libraryDocs.filter((doc) => doc.documentId !== item.documentId)]
+      return item as T
+    }
+    case 'remove_library_doc':
+      if (typeof args?.path === 'string') {
+        libraryDocs = libraryDocs.filter((item) => item.path !== args.path)
+      }
+      return undefined as T
+    case 'search_library':
+      return searchLibraryFallback(String(args?.query ?? '')) as T
+    case 'get_library_tags':
+      return collectTags(currentDoc.root).map<LibraryTagSummary>((tag) => ({
+        tag,
+        documentCount: 1,
+        nodeCount: 1,
+        items: [],
+      })) as T
+    case 'get_library_tasks':
+      return collectTasks(currentDoc.root).map<LibraryTaskSummary>((task) => ({
+        documentId: currentDoc.id,
+        documentTitle: currentDoc.title,
+        documentPath: libraryDocs[0]?.path ?? 'demo.siwei.json',
+        nodeId: task.nodeId,
+        text: task.text,
+        checked: task.checked,
+        path: task.path,
+        tags: task.tags,
+      })) as T
+    case 'toggle_library_task': {
+      const nodeId = String(args?.nodeId ?? '')
+      const checked = Boolean(args?.checked)
+      updateNodeChecked(currentDoc.root, nodeId, checked)
+      return collectTasks(currentDoc.root)
+        .map<LibraryTaskSummary>((task) => ({
+          documentId: currentDoc.id,
+          documentTitle: currentDoc.title,
+          documentPath: String(args?.documentPath ?? 'demo.siwei.json'),
+          nodeId: task.nodeId,
+          text: task.text,
+          checked: task.checked,
+          path: task.path,
+          tags: task.tags,
+        }))
+        .find((task) => task.nodeId === nodeId) as T
+    }
     default:
       throw new Error(`Unsupported browser fallback command: ${command}`)
   }
+}
+
+function countNodes(node: OutlineDocument['root']): number {
+  return 1 + node.children.reduce((total, child) => total + countNodes(child), 0)
+}
+
+function collectTags(node: OutlineDocument['root']): string[] {
+  const tags = new Set(node.tags ?? [])
+  node.children.forEach((child) => collectTags(child).forEach((tag) => tags.add(tag)))
+  return [...tags].sort()
+}
+
+function collectTasks(
+  node: OutlineDocument['root'],
+  path: string[] = [],
+): Array<{ nodeId: string; text: string; checked: boolean; path: string[]; tags: string[] }> {
+  const current = node.checked === undefined
+    ? []
+    : [{
+        nodeId: node.id,
+        text: node.text,
+        checked: node.checked,
+        path,
+        tags: node.tags ?? [],
+      }]
+  return [
+    ...current,
+    ...node.children.flatMap((child) => collectTasks(child, [...path, node.text])),
+  ]
+}
+
+function updateNodeChecked(node: OutlineDocument['root'], nodeId: string, checked: boolean): boolean {
+  if (node.id === nodeId) {
+    node.checked = checked
+    node.updatedAt = now()
+    return true
+  }
+  return node.children.some((child) => updateNodeChecked(child, nodeId, checked))
+}
+
+function searchLibraryFallback(query: string): LibrarySearchResult[] {
+  const trimmed = query.trim().toLowerCase()
+  if (!trimmed) return []
+  const results: LibrarySearchResult[] = []
+  if (currentDoc.title.toLowerCase().includes(trimmed)) {
+    results.push({
+      documentId: currentDoc.id,
+      documentTitle: currentDoc.title,
+      documentPath: libraryDocs[0]?.path ?? 'demo.siwei.json',
+      text: currentDoc.title,
+      path: [],
+      matchSources: ['title'],
+    })
+  }
+  const documentResults: SearchResult[] = []
+  searchNode(currentDoc.root, trimmed, [], documentResults)
+  documentResults.forEach((result) => {
+    results.push({
+      documentId: currentDoc.id,
+      documentTitle: currentDoc.title,
+      documentPath: libraryDocs[0]?.path ?? 'demo.siwei.json',
+      nodeId: result.nodeId,
+      text: result.text,
+      path: result.path,
+      matchSources: result.matchSources,
+    })
+  })
+  return results
 }

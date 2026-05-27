@@ -1,7 +1,8 @@
 import React from 'react'
-import { Plus, FolderOpen, FileText, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, FolderOpen, FileText, Trash2, ChevronLeft, ChevronRight, Database } from 'lucide-react'
 import { useDocumentStore } from '../../features/document/documentStore'
 import { useRecentStore } from '../../features/document/recentStore'
+import { useLibraryStore } from '../../features/library/libraryStore'
 import { openFileDialog } from '../../services/siweiApi'
 import { toast } from '../common/Toast'
 
@@ -10,6 +11,8 @@ export const Sidebar: React.FC = () => {
   const loadDoc = useDocumentStore((s) => s.loadDoc)
   const canDiscardCurrentDoc = useDocumentStore((s) => s.canDiscardCurrentDoc)
   const currentFilePath = useDocumentStore((s) => s.currentFilePath)
+  const activeLibraryView = useLibraryStore((s) => s.activeView)
+  const setActiveLibraryView = useLibraryStore((s) => s.setActiveView)
   
   const recentDocs = useRecentStore((s) => s.recentDocs)
   const loadRecents = useRecentStore((s) => s.loadRecents)
@@ -142,6 +145,18 @@ export const Sidebar: React.FC = () => {
           <FolderOpen size={14} className={isCollapsed ? "text-zinc-500" : "text-zinc-500"} />
           {!isCollapsed && <span>打开文档</span>}
         </button>
+        <button
+          onClick={() => setActiveLibraryView(activeLibraryView ? null : 'docs')}
+          className={`flex h-8 items-center justify-center gap-2 rounded-md border font-medium text-xs tracking-wide transition ${
+            activeLibraryView
+              ? 'border-zinc-300 bg-white text-zinc-900 shadow-sm'
+              : 'border-zinc-200/60 bg-transparent text-zinc-600 hover:bg-zinc-200/50 hover:text-zinc-900'
+          } ${isCollapsed ? 'px-0 w-8 mx-auto border-none hover:bg-zinc-200/80' : 'px-4 w-full'}`}
+          title="文档库"
+        >
+          <Database size={14} className="text-zinc-500" />
+          {!isCollapsed && <span>文档库</span>}
+        </button>
       </div>
 
       {/* Recents list */}
@@ -224,7 +239,7 @@ export const Sidebar: React.FC = () => {
       {/* Footer Info */}
       <div className="p-3 mb-2">
         <div className={`flex items-center gap-2 text-zinc-400 font-medium ${isCollapsed ? 'justify-center' : 'px-3'}`}>
-          <span className="text-[10px]">Apple & Notion Inspired</span>
+          <span className="text-[10px]">思帷</span>
         </div>
       </div>
     </aside>

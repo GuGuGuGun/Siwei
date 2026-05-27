@@ -1,6 +1,7 @@
 pub mod dialogs;
 pub mod document;
 pub mod import_export;
+pub mod library;
 pub mod recent;
 pub mod search;
 
@@ -16,6 +17,16 @@ pub fn handlers() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sy
         recent::get_recent_docs,
         recent::add_recent_doc,
         recent::remove_recent_doc,
+        library::get_library_docs,
+        library::add_library_doc,
+        library::remove_library_doc,
+        library::refresh_library_doc,
+        library::refresh_library,
+        library::search_library,
+        library::get_library_tags,
+        library::get_library_tasks,
+        library::rebuild_library_index,
+        library::toggle_library_task,
         dialogs::open_file_dialog,
         dialogs::save_file_dialog,
         search::search_document

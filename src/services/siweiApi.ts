@@ -1,6 +1,12 @@
 import { invoke } from '@tauri-apps/api/core'
 
 import type { OutlineDocument, RecentDocItem, SearchResult } from '../types/document'
+import type {
+  LibraryDocumentItem,
+  LibrarySearchResult,
+  LibraryTagSummary,
+  LibraryTaskSummary,
+} from '../types/library'
 import { browserInvokeFallback } from './browserInvokeFallback'
 
 function callCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -64,4 +70,48 @@ export function searchDocument(
   query: string,
 ): Promise<SearchResult[]> {
   return callCommand('search_document', { doc, query })
+}
+
+export function getLibraryDocs(): Promise<LibraryDocumentItem[]> {
+  return callCommand('get_library_docs')
+}
+
+export function addLibraryDoc(path: string): Promise<LibraryDocumentItem> {
+  return callCommand('add_library_doc', { path })
+}
+
+export function removeLibraryDoc(path: string): Promise<void> {
+  return callCommand('remove_library_doc', { path })
+}
+
+export function refreshLibraryDoc(path: string): Promise<LibraryDocumentItem> {
+  return callCommand('refresh_library_doc', { path })
+}
+
+export function refreshLibrary(): Promise<LibraryDocumentItem[]> {
+  return callCommand('refresh_library')
+}
+
+export function searchLibrary(query: string): Promise<LibrarySearchResult[]> {
+  return callCommand('search_library', { query })
+}
+
+export function getLibraryTags(): Promise<LibraryTagSummary[]> {
+  return callCommand('get_library_tags')
+}
+
+export function getLibraryTasks(): Promise<LibraryTaskSummary[]> {
+  return callCommand('get_library_tasks')
+}
+
+export function rebuildLibraryIndex(): Promise<LibraryDocumentItem[]> {
+  return callCommand('rebuild_library_index')
+}
+
+export function toggleLibraryTask(
+  documentPath: string,
+  nodeId: string,
+  checked: boolean,
+): Promise<LibraryTaskSummary> {
+  return callCommand('toggle_library_task', { documentPath, nodeId, checked })
 }

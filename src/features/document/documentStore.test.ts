@@ -13,6 +13,7 @@ vi.mock('../../services/siweiApi', () => ({
   importJson: vi.fn(),
   addRecentDoc: vi.fn(),
   saveFileDialog: vi.fn(),
+  refreshLibraryDoc: vi.fn(),
 }))
 
 const apiMock = vi.mocked(api)
@@ -37,6 +38,18 @@ describe('documentStore', () => {
       redoStack: [],
       cleanSnapshotKey: null,
       activeTextEditSession: null,
+    })
+    apiMock.refreshLibraryDoc.mockResolvedValue({
+      documentId: 'doc-1',
+      title: '测试文档',
+      path: 'demo.siwei.json',
+      updatedAt: 1,
+      indexedAt: 1,
+      nodeCount: 2,
+      taskCount: 0,
+      uncheckedTaskCount: 0,
+      tags: [],
+      status: 'ready',
     })
   })
 
@@ -65,6 +78,23 @@ describe('documentStore', () => {
     expect(savedDoc.root.children[0].collapsed).toBe(true)
     expect(savedDoc.root.children[1].collapsed).toBe(false)
     expect(useDocumentStore.getState().isDirty).toBe(false)
+    expect(apiMock.refreshLibraryDoc).toHaveBeenCalledWith('demo.siwei.json')
+  })
+
+  it('keeps save successful when library index refresh fails', async () => {
+    useDocumentStore.setState({
+      currentDoc: createDocument(),
+      currentFilePath: 'demo.siwei.json',
+      isDirty: true,
+    })
+    apiMock.saveDocument.mockResolvedValueOnce(undefined)
+    apiMock.addRecentDoc.mockResolvedValueOnce(undefined)
+    apiMock.refreshLibraryDoc.mockRejectedValueOnce(new Error('索引刷新失败'))
+
+    const saved = await useDocumentStore.getState().saveDoc()
+
+    expect(saved).toBe(true)
+    expect(useDocumentStore.getState().saveStatus).toBe('saved')
   })
 
   it('does not change path or dirty state when save dialog is cancelled', async () => {
