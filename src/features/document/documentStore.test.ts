@@ -205,6 +205,72 @@ describe('documentStore', () => {
     expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(false)
   })
 
+  it('inserts a strict sibling after an expanded node with children', async () => {
+    await loadFixtureDoc()
+
+    const insertedId = useDocumentStore.getState().insertSiblingNode('node-1', '严格同级')
+
+    expect(insertedId).toBeTruthy()
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual([
+      'node-1',
+      insertedId,
+      'node-2',
+    ])
+    expect(useDocumentStore.getState().currentDoc?.root.children[0].children.map((node) => node.id)).toEqual([
+      'node-1-1',
+    ])
+    expect(useDocumentStore.getState().selectedNodeId).toBe(insertedId)
+    expect(useDocumentStore.getState().canUndo).toBe(true)
+  })
+
+  it('inserts a child node as the last child and expands the parent', async () => {
+    await loadFixtureDoc()
+    useDocumentStore.setState({ collapsedNodeIds: new Set(['node-1']) })
+
+    const insertedId = useDocumentStore.getState().insertChildNode('node-1', '新增子节点')
+
+    expect(insertedId).toBeTruthy()
+    expect(useDocumentStore.getState().currentDoc?.root.children[0].children.map((node) => node.id)).toEqual([
+      'node-1-1',
+      insertedId,
+    ])
+    expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(false)
+    expect(useDocumentStore.getState().selectedNodeId).toBe(insertedId)
+    expect(useDocumentStore.getState().isDirty).toBe(true)
+
+    useDocumentStore.getState().undo()
+    expect(useDocumentStore.getState().currentDoc?.root.children[0].children.map((node) => node.id)).toEqual([
+      'node-1-1',
+    ])
+    expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(true)
+  })
+
+  it('derives node operation state from the current tree position', async () => {
+    await loadFixtureDoc()
+
+    expect(useDocumentStore.getState().getNodeOperationState('root')).toEqual({
+      canInsertSibling: false,
+      canInsertChild: true,
+      canDelete: false,
+      canIndent: false,
+      canOutdent: false,
+      canMoveUp: false,
+      canMoveDown: false,
+      canToggleCollapse: true,
+    })
+
+    expect(useDocumentStore.getState().getNodeOperationState('node-2')).toEqual({
+      canInsertSibling: true,
+      canInsertChild: true,
+      canDelete: true,
+      canIndent: true,
+      canOutdent: false,
+      canMoveUp: true,
+      canMoveDown: false,
+      canToggleCollapse: false,
+    })
+  })
+
   it('moves a dragged node before a same-level sibling and records undo history', async () => {
     await loadFixtureDoc()
 

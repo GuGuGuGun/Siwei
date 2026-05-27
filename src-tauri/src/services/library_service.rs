@@ -2,6 +2,8 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
+    thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -9,8 +11,11 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::{
     models::{
-        LibraryDocumentItem, LibraryDocumentStatus, LibraryNodeIndexItem,
-        LibrarySearchMatchSource, LibrarySearchResult, LibraryTagSummary, LibraryTaskSummary,
+        LibraryDocumentItem, LibraryDocumentQuery, LibraryDocumentStatus, LibraryHighlightRange,
+        LibraryLocation, LibraryLocationSource, LibraryMatchedField, LibraryNodeIndexItem,
+        LibraryPage, LibraryRefreshJobStatus, LibraryRefreshStatus, LibrarySearchMatchSource,
+        LibrarySearchQuery, LibrarySearchResult, LibrarySortBy, LibrarySortDirection,
+        LibraryTagQuery, LibraryTagSummary, LibraryTaskQuery, LibraryTaskSummary,
         OutlineDocument, OutlineNode,
     },
     services::file_service,
@@ -19,6 +24,9 @@ use crate::{
 
 const LIBRARY_DB_FILE: &str = "library.db";
 const SCHEMA_VERSION: u32 = 1;
+const REFRESH_READ_CONCURRENCY: u32 = 4;
+
+static REFRESH_JOB: OnceLock<Mutex<Option<LibraryRefreshStatus>>> = OnceLock::new();
 
 #[derive(Debug, Clone)]
 struct IndexedNode {
@@ -48,6 +56,32 @@ struct StoredDocument {
 pub fn get_library_docs(app_data_dir: impl AsRef<Path>) -> AppResult<Vec<LibraryDocumentItem>> {
     let conn = open_database(app_data_dir.as_ref())?;
     list_documents(&conn)
+}
+
+pub fn query_library_docs(
+    app_data_dir: impl AsRef<Path>,
+    query: LibraryDocumentQuery,
+) -> AppResult<LibraryPage<LibraryDocumentItem>> {
+    let conn = open_database(app_data_dir.as_ref())?;
+    let mut items = list_documents(&conn)?;
+
+    if let Some(status) = query.status.as_deref().and_then(parse_status_filter) {
+        items.retain(|item| item.status == status);
+    }
+    if let Some(keyword) = query.keyword.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        let keyword = keyword.to_lowercase();
+        items.retain(|item| {
+            item.title.to_lowercase().contains(&keyword) || item.path.to_lowercase().contains(&keyword)
+        });
+    }
+
+    let sort_by = query.sort_by.unwrap_or(LibrarySortBy::UpdatedAt);
+    let sort_direction = query.sort_direction.unwrap_or(LibrarySortDirection::Desc);
+    items.sort_by(|left, right| compare_documents(left, right, &sort_by));
+    if matches!(sort_direction, LibrarySortDirection::Desc) {
+        items.reverse();
+    }
+    page_items(items, query.limit, query.offset)
 }
 
 pub fn add_library_doc(
@@ -93,9 +127,33 @@ pub fn search_library(
 
     let conn = open_database(app_data_dir.as_ref())?;
     let mut results = BTreeMap::<String, LibrarySearchResult>::new();
-    search_library_fts(&conn, normalized_query, &mut results)?;
-    search_library_like(&conn, normalized_query, &mut results)?;
+    search_library_fts(&conn, normalized_query, None, None, &mut results)?;
+    search_library_like(&conn, normalized_query, None, None, &mut results)?;
     Ok(results.into_values().collect())
+}
+
+pub fn query_library_search(
+    app_data_dir: impl AsRef<Path>,
+    query: LibrarySearchQuery,
+) -> AppResult<LibraryPage<LibrarySearchResult>> {
+    let normalized_query = query.query.trim();
+    if normalized_query.is_empty() {
+        return Ok(LibraryPage { items: Vec::new(), has_more: false, total: Some(0) });
+    }
+
+    let conn = open_database(app_data_dir.as_ref())?;
+    let status_filter = parse_search_status_filter(query.document_status.as_deref());
+    let field_filter = parse_field_filter(query.matched_field.as_deref());
+    let mut results = BTreeMap::<String, LibrarySearchResult>::new();
+    search_library_fts(&conn, normalized_query, status_filter.as_deref(), field_filter.as_ref(), &mut results)?;
+    search_library_like(&conn, normalized_query, status_filter.as_deref(), field_filter.as_ref(), &mut results)?;
+    let mut items: Vec<_> = results.into_values().collect();
+    items.sort_by(|left, right| {
+        right.score.cmp(&left.score)
+            .then_with(|| right.document_path.cmp(&left.document_path))
+            .then_with(|| left.node_id.cmp(&right.node_id))
+    });
+    page_items(items, query.limit, query.offset)
 }
 
 pub fn get_library_tags(app_data_dir: impl AsRef<Path>) -> AppResult<Vec<LibraryTagSummary>> {
@@ -126,14 +184,45 @@ pub fn get_library_tags(app_data_dir: impl AsRef<Path>) -> AppResult<Vec<Library
             tag,
             document_count,
             node_count,
+            location: None,
         });
     }
     Ok(summaries)
 }
 
+pub fn query_library_tags(
+    app_data_dir: impl AsRef<Path>,
+    query: LibraryTagQuery,
+) -> AppResult<LibraryPage<LibraryTagSummary>> {
+    let mut tags = get_library_tags(app_data_dir)?;
+    match query.sort_by.as_deref() {
+        Some("nodeCount") => tags.sort_by(|left, right| {
+            left.node_count.cmp(&right.node_count).then_with(|| left.tag.to_lowercase().cmp(&right.tag.to_lowercase()))
+        }),
+        _ => tags.sort_by(|left, right| left.tag.to_lowercase().cmp(&right.tag.to_lowercase())),
+    }
+    if matches!(query.sort_direction, Some(LibrarySortDirection::Desc)) {
+        tags.reverse();
+    }
+    page_items(tags, query.limit, query.offset)
+}
+
 pub fn get_library_tasks(app_data_dir: impl AsRef<Path>) -> AppResult<Vec<LibraryTaskSummary>> {
     let conn = open_database(app_data_dir.as_ref())?;
-    query_tasks(&conn, None)
+    query_tasks(&conn, None, None)
+}
+
+pub fn query_library_tasks(
+    app_data_dir: impl AsRef<Path>,
+    query: LibraryTaskQuery,
+) -> AppResult<LibraryPage<LibraryTaskSummary>> {
+    let conn = open_database(app_data_dir.as_ref())?;
+    let checked = match query.checked.as_deref() {
+        Some("checked") => Some(true),
+        Some("unchecked") => Some(false),
+        _ => None,
+    };
+    page_items(query_tasks(&conn, None, checked)?, query.limit, query.offset)
 }
 
 pub fn rebuild_library_index(
@@ -183,10 +272,138 @@ pub fn toggle_library_task(
     file_service::save_document(document_path, &doc)?;
     let _ = refresh_document_by_path(&mut conn, document_path)?;
 
-    query_tasks(&conn, Some((document_path, node_id)))?
+    query_tasks(&conn, Some((document_path, node_id)), None)?
         .into_iter()
         .next()
         .ok_or_else(|| AppError::Validation(format!("任务不存在: {node_id}")))
+}
+
+pub fn remove_missing_library_docs(
+    app_data_dir: impl AsRef<Path>,
+) -> AppResult<Vec<LibraryDocumentItem>> {
+    let conn = open_database(app_data_dir.as_ref())?;
+    conn.execute("DELETE FROM library_documents WHERE status = 'missing'", [])
+        .map_err(db_error)?;
+    list_documents(&conn)
+}
+
+pub fn start_library_refresh(app_data_dir: impl AsRef<Path>) -> AppResult<String> {
+    let app_data_dir = app_data_dir.as_ref().to_path_buf();
+    let conn = open_database(&app_data_dir)?;
+    let paths = all_document_paths(&conn)?;
+    drop(conn);
+
+    let mut guard = refresh_job_slot().lock().map_err(|_| AppError::Database("刷新任务状态不可写".to_string()))?;
+    if let Some(job) = guard.as_ref() {
+        if matches!(
+            job.status,
+            LibraryRefreshJobStatus::Queued
+                | LibraryRefreshJobStatus::Running
+                | LibraryRefreshJobStatus::CancelRequested
+        ) {
+            return Ok(job.job_id.clone());
+        }
+    }
+
+    let job_id = format!("library-refresh-{}", now_millis());
+    let started_at = now_millis();
+    *guard = Some(LibraryRefreshStatus {
+        job_id: job_id.clone(),
+        status: LibraryRefreshJobStatus::Queued,
+        total: paths.len() as u32,
+        processed: 0,
+        succeeded: 0,
+        failed: 0,
+        skipped: 0,
+        errors: Vec::new(),
+        started_at,
+        finished_at: None,
+    });
+    drop(guard);
+
+    if let Err(error) = spawn_refresh_worker(app_data_dir, job_id.clone(), paths) {
+        increment_refresh_task_failure(&job_id, error.user_message())?;
+        return Err(error);
+    }
+    Ok(job_id)
+}
+
+fn spawn_refresh_worker(app_data_dir: PathBuf, job_id: String, paths: Vec<String>) -> AppResult<()> {
+    thread::Builder::new()
+        .name("siwei-library-refresh".to_string())
+        .spawn(move || {
+            if let Err(error) = run_refresh_job(app_data_dir, job_id.clone(), paths) {
+                let _ = increment_refresh_task_failure(&job_id, error.user_message());
+            }
+        })
+        .map(|_| ())
+        .map_err(|error| AppError::Database(format!("刷新任务启动失败: {error}")))
+}
+
+fn run_refresh_job(
+    app_data_dir: PathBuf,
+    job_id: String,
+    paths: Vec<String>,
+) -> AppResult<()> {
+    update_refresh_job(&job_id, |job| {
+        if matches!(job.status, LibraryRefreshJobStatus::Queued) {
+            job.status = LibraryRefreshJobStatus::Running;
+        }
+    })?;
+
+    // v0.5.0 采用最多 4 个并发读取、串行写库的语义；当前实现保持写入串行，
+    // 后续可在不改 API 的前提下把读取阶段真正并行化。
+    let _read_concurrency = REFRESH_READ_CONCURRENCY;
+    let mut conn = open_database(&app_data_dir)?;
+    for path in paths {
+        if is_cancel_requested(&job_id)? {
+            increment_refresh_skipped(&job_id)?;
+            continue;
+        }
+        match refresh_document_by_path(&mut conn, &path) {
+            Ok(item) if matches!(item.status, LibraryDocumentStatus::Ready | LibraryDocumentStatus::Stale) => {
+                increment_refresh_success(&job_id)?;
+            }
+            Ok(item) => {
+                increment_refresh_failure(&job_id, item.document_id, item.path, item.status, item.error_summary)?;
+            }
+            Err(error) => {
+                increment_refresh_task_failure(&job_id, error.user_message())?;
+                break;
+            }
+        }
+    }
+    finish_refresh_job(&job_id)?;
+    Ok(())
+}
+
+pub fn get_library_refresh_status(
+    _app_data_dir: impl AsRef<Path>,
+    job_id: &str,
+) -> AppResult<LibraryRefreshStatus> {
+    refresh_job_slot()
+        .lock()
+        .map_err(|_| AppError::Database("刷新任务状态不可读".to_string()))?
+        .clone()
+        .filter(|job| job.job_id == job_id)
+        .ok_or_else(|| AppError::Validation(format!("刷新任务不存在: {job_id}")))
+}
+
+pub fn cancel_library_refresh(
+    _app_data_dir: impl AsRef<Path>,
+    job_id: &str,
+) -> AppResult<LibraryRefreshStatus> {
+    let mut guard = refresh_job_slot()
+        .lock()
+        .map_err(|_| AppError::Database("刷新任务状态不可写".to_string()))?;
+    let job = guard
+        .as_mut()
+        .filter(|job| job.job_id == job_id)
+        .ok_or_else(|| AppError::Validation(format!("刷新任务不存在: {job_id}")))?;
+    if matches!(job.status, LibraryRefreshJobStatus::Queued | LibraryRefreshJobStatus::Running) {
+        job.status = LibraryRefreshJobStatus::CancelRequested;
+    }
+    Ok(job.clone())
 }
 
 fn open_database(app_data_dir: &Path) -> AppResult<Connection> {
@@ -471,6 +688,35 @@ fn list_documents(conn: &Connection) -> AppResult<Vec<LibraryDocumentItem>> {
     Ok(items)
 }
 
+fn page_items<T>(items: Vec<T>, limit: Option<u32>, offset: Option<u32>) -> AppResult<LibraryPage<T>> {
+    let total = items.len();
+    let offset = offset.unwrap_or(0) as usize;
+    let limit = limit.unwrap_or(50).clamp(1, 200) as usize;
+    let has_more = offset.saturating_add(limit) < total;
+    let page = items.into_iter().skip(offset).take(limit).collect();
+    Ok(LibraryPage {
+        items: page,
+        has_more,
+        total: Some(total as u32),
+    })
+}
+
+fn compare_documents(
+    left: &LibraryDocumentItem,
+    right: &LibraryDocumentItem,
+    sort_by: &LibrarySortBy,
+) -> std::cmp::Ordering {
+    match sort_by {
+        LibrarySortBy::UpdatedAt => left.updated_at.cmp(&right.updated_at),
+        LibrarySortBy::Title => left.title.to_lowercase().cmp(&right.title.to_lowercase()),
+        LibrarySortBy::TaskCount => left.task_count.cmp(&right.task_count),
+        LibrarySortBy::TagCount => left.tags.len().cmp(&right.tags.len()),
+        LibrarySortBy::Status => status_to_db(&left.status).cmp(status_to_db(&right.status)),
+    }
+    .then_with(|| left.title.to_lowercase().cmp(&right.title.to_lowercase()))
+    .then_with(|| left.path.cmp(&right.path))
+}
+
 fn document_by_path(conn: &Connection, path: &str) -> AppResult<Option<LibraryDocumentItem>> {
     let stored = conn
         .query_row(
@@ -567,6 +813,8 @@ fn tags_for_document(conn: &Connection, document_id: &str) -> AppResult<Vec<Stri
 fn search_library_fts(
     conn: &Connection,
     query: &str,
+    status_filter: Option<&[LibraryDocumentStatus]>,
+    field_filter: Option<&LibraryMatchedField>,
     results: &mut BTreeMap<String, LibrarySearchResult>,
 ) -> AppResult<()> {
     let escaped = query.replace('"', "\"\"");
@@ -574,18 +822,21 @@ fn search_library_fts(
     let mut stmt = conn
         .prepare(
             "SELECT d.document_id, d.title, d.path, f.node_id, f.source,
-                    COALESCE(n.text, d.title), COALESCE(n.parent_path, '[]')
+                    COALESCE(n.text, d.title), COALESCE(n.parent_path, '[]'), d.status
              FROM library_search_fts f
              JOIN library_documents d ON d.document_id = f.document_id
              LEFT JOIN library_nodes n ON n.document_id = f.document_id AND n.node_id = f.node_id
-             WHERE library_search_fts MATCH ?1 AND d.status = 'ready'",
+             WHERE library_search_fts MATCH ?1",
         )
         .map_err(db_error)?;
     let rows = stmt
         .query_map(params![fts_query], read_search_row)
         .map_err(db_error)?;
     for row in rows {
-        merge_search_row(results, row.map_err(db_error)?);
+        let row = row.map_err(db_error)?;
+        if search_row_matches_filters(&row, status_filter, field_filter) {
+            merge_search_row(results, row, query);
+        }
     }
     Ok(())
 }
@@ -593,41 +844,46 @@ fn search_library_fts(
 fn search_library_like(
     conn: &Connection,
     query: &str,
+    status_filter: Option<&[LibraryDocumentStatus]>,
+    field_filter: Option<&LibraryMatchedField>,
     results: &mut BTreeMap<String, LibrarySearchResult>,
 ) -> AppResult<()> {
     let like_query = format!("%{}%", query.to_lowercase());
     let mut stmt = conn
         .prepare(
             "SELECT d.document_id, d.title, d.path, NULL AS node_id, 'title' AS source,
-                    d.title AS text, '[]' AS parent_path
+                    d.title AS text, '[]' AS parent_path, d.status
              FROM library_documents d
-             WHERE d.status = 'ready' AND lower(d.title) LIKE ?1
+             WHERE lower(d.title) LIKE ?1
              UNION ALL
              SELECT d.document_id, d.title, d.path, n.node_id, 'text' AS source,
-                    n.text, n.parent_path
+                    n.text, n.parent_path, d.status
              FROM library_nodes n
              JOIN library_documents d ON d.document_id = n.document_id
-             WHERE d.status = 'ready' AND lower(n.text) LIKE ?1
+             WHERE lower(n.text) LIKE ?1
              UNION ALL
              SELECT d.document_id, d.title, d.path, n.node_id, 'note' AS source,
-                    n.text, n.parent_path
+                    COALESCE(n.note, n.text), n.parent_path, d.status
              FROM library_nodes n
              JOIN library_documents d ON d.document_id = n.document_id
-             WHERE d.status = 'ready' AND n.note IS NOT NULL AND lower(n.note) LIKE ?1
+             WHERE n.note IS NOT NULL AND lower(n.note) LIKE ?1
              UNION ALL
              SELECT d.document_id, d.title, d.path, n.node_id, 'tag' AS source,
-                    n.text, n.parent_path
+                    t.tag, n.parent_path, d.status
              FROM library_node_tags t
              JOIN library_nodes n ON n.document_id = t.document_id AND n.node_id = t.node_id
              JOIN library_documents d ON d.document_id = t.document_id
-             WHERE d.status = 'ready' AND lower(t.tag) LIKE ?1",
+             WHERE lower(t.tag) LIKE ?1",
         )
         .map_err(db_error)?;
     let rows = stmt
         .query_map(params![like_query], read_search_row)
         .map_err(db_error)?;
     for row in rows {
-        merge_search_row(results, row.map_err(db_error)?);
+        let row = row.map_err(db_error)?;
+        if search_row_matches_filters(&row, status_filter, field_filter) {
+            merge_search_row(results, row, query);
+        }
     }
     Ok(())
 }
@@ -641,6 +897,11 @@ fn read_search_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SearchRow> {
         source: source_from_db(row.get::<_, String>(4)?.as_str()),
         text: row.get(5)?,
         path: decode_path(&row.get::<_, String>(6)?),
+        status: if row.as_ref().column_count() > 7 {
+            status_from_db(row.get::<_, String>(7)?.as_str())
+        } else {
+            LibraryDocumentStatus::Ready
+        },
     })
 }
 
@@ -653,30 +914,230 @@ struct SearchRow {
     source: LibrarySearchMatchSource,
     text: String,
     path: Vec<String>,
+    status: LibraryDocumentStatus,
 }
 
-fn merge_search_row(results: &mut BTreeMap<String, LibrarySearchResult>, row: SearchRow) {
+fn merge_search_row(results: &mut BTreeMap<String, LibrarySearchResult>, row: SearchRow, query: &str) {
     let key = format!(
         "{}:{}",
         row.document_id,
         row.node_id.clone().unwrap_or_else(|| "__title__".to_string())
     );
+    let ranges = highlight_ranges(&row.text, query);
+    let score = field_weight(&row.source) + ranges.len() as i32 * 10;
     results
         .entry(key)
         .and_modify(|result| {
             if !result.match_sources.contains(&row.source) {
                 result.match_sources.push(row.source.clone());
             }
+            if let Some(fields) = &mut result.matched_fields {
+                if !fields.contains(&row.source) {
+                    fields.push(row.source.clone());
+                }
+            }
+            result.score = Some(result.score.unwrap_or_default().max(score));
         })
         .or_insert_with(|| LibrarySearchResult {
-            document_id: row.document_id,
+            document_id: row.document_id.clone(),
             document_title: row.document_title,
-            document_path: row.document_path,
-            node_id: row.node_id,
-            text: row.text,
-            path: row.path,
+            document_path: row.document_path.clone(),
+            document_status: Some(row.status),
+            node_id: row.node_id.clone(),
+            text: row.text.clone(),
+            path: row.path.clone(),
+            snippet: Some(row.text),
+            highlight_ranges: Some(ranges),
+            matched_fields: Some(vec![row.source.clone()]),
             match_sources: vec![row.source],
+            score: Some(score),
+            location: Some(LibraryLocation {
+                document_id: row.document_id,
+                document_path: row.document_path,
+                node_id: row.node_id,
+                path: row.path,
+                source: LibraryLocationSource::Search,
+            }),
         });
+}
+
+fn search_row_matches_filters(
+    row: &SearchRow,
+    status_filter: Option<&[LibraryDocumentStatus]>,
+    field_filter: Option<&LibraryMatchedField>,
+) -> bool {
+    let status_matches = status_filter
+        .map(|statuses| statuses.contains(&row.status))
+        .unwrap_or_else(|| matches!(row.status, LibraryDocumentStatus::Ready | LibraryDocumentStatus::Stale));
+    let field_matches = field_filter
+        .map(|field| field == &row.source)
+        .unwrap_or(true);
+    status_matches && field_matches
+}
+
+fn parse_status_filter(status: &str) -> Option<LibraryDocumentStatus> {
+    match status {
+        "ready" => Some(LibraryDocumentStatus::Ready),
+        "stale" => Some(LibraryDocumentStatus::Stale),
+        "missing" => Some(LibraryDocumentStatus::Missing),
+        "invalid" => Some(LibraryDocumentStatus::Invalid),
+        "indexing" => Some(LibraryDocumentStatus::Indexing),
+        "error" => Some(LibraryDocumentStatus::Error),
+        _ => None,
+    }
+}
+
+fn parse_search_status_filter(status: Option<&str>) -> Option<Vec<LibraryDocumentStatus>> {
+    match status {
+        Some("all") => Some(vec![
+            LibraryDocumentStatus::Ready,
+            LibraryDocumentStatus::Stale,
+            LibraryDocumentStatus::Missing,
+            LibraryDocumentStatus::Invalid,
+            LibraryDocumentStatus::Error,
+        ]),
+        Some(value) => parse_status_filter(value).map(|status| vec![status]),
+        None => None,
+    }
+}
+
+fn parse_field_filter(field: Option<&str>) -> Option<LibraryMatchedField> {
+    match field {
+        Some("title") => Some(LibraryMatchedField::Title),
+        Some("content") => Some(LibraryMatchedField::Content),
+        Some("note") => Some(LibraryMatchedField::Note),
+        Some("tag") => Some(LibraryMatchedField::Tag),
+        _ => None,
+    }
+}
+
+fn field_weight(field: &LibraryMatchedField) -> i32 {
+    match field {
+        LibraryMatchedField::Title => 400,
+        LibraryMatchedField::Content => 300,
+        LibraryMatchedField::Note => 200,
+        LibraryMatchedField::Tag => 100,
+    }
+}
+
+fn highlight_ranges(value: &str, query: &str) -> Vec<LibraryHighlightRange> {
+    let lower_value = value.to_lowercase();
+    let lower_query = query.to_lowercase();
+    if lower_query.is_empty() {
+        return Vec::new();
+    }
+
+    let mut ranges = Vec::new();
+    let mut byte_offset = 0;
+    while let Some(relative_start) = lower_value[byte_offset..].find(&lower_query) {
+        let start_byte = byte_offset + relative_start;
+        let end_byte = start_byte + lower_query.len();
+        ranges.push(LibraryHighlightRange {
+            start: utf16_offset(value, start_byte),
+            end: utf16_offset(value, end_byte),
+        });
+        byte_offset = end_byte;
+    }
+    ranges
+}
+
+fn utf16_offset(value: &str, byte_offset: usize) -> u32 {
+    value[..byte_offset.min(value.len())]
+        .encode_utf16()
+        .count() as u32
+}
+
+fn refresh_job_slot() -> &'static Mutex<Option<LibraryRefreshStatus>> {
+    REFRESH_JOB.get_or_init(|| Mutex::new(None))
+}
+
+fn is_cancel_requested(job_id: &str) -> AppResult<bool> {
+    Ok(refresh_job_slot()
+        .lock()
+        .map_err(|_| AppError::Database("刷新任务状态不可读".to_string()))?
+        .as_ref()
+        .filter(|job| job.job_id == job_id)
+        .map(|job| matches!(job.status, LibraryRefreshJobStatus::CancelRequested))
+        .unwrap_or(false))
+}
+
+fn increment_refresh_success(job_id: &str) -> AppResult<()> {
+    update_refresh_job(job_id, |job| {
+        job.processed += 1;
+        job.succeeded += 1;
+    })
+}
+
+fn increment_refresh_skipped(job_id: &str) -> AppResult<()> {
+    update_refresh_job(job_id, |job| {
+        job.processed += 1;
+        job.skipped += 1;
+    })
+}
+
+fn increment_refresh_failure(
+    job_id: &str,
+    document_id: String,
+    path: String,
+    status: LibraryDocumentStatus,
+    message: Option<String>,
+) -> AppResult<()> {
+    update_refresh_job(job_id, |job| {
+        job.processed += 1;
+        job.failed += 1;
+        job.errors.push(crate::models::LibraryRefreshErrorItem {
+            document_id,
+            path,
+            status,
+            message: message.unwrap_or_else(|| "刷新失败".to_string()),
+            technical_message: None,
+        });
+    })
+}
+
+fn increment_refresh_task_failure(job_id: &str, message: String) -> AppResult<()> {
+    update_refresh_job(job_id, |job| {
+        job.status = LibraryRefreshJobStatus::Failed;
+        job.finished_at = Some(now_millis());
+        job.errors.push(crate::models::LibraryRefreshErrorItem {
+            document_id: String::new(),
+            path: String::new(),
+            status: LibraryDocumentStatus::Error,
+            message,
+            technical_message: None,
+        });
+    })
+}
+
+fn finish_refresh_job(job_id: &str) -> AppResult<()> {
+    update_refresh_job(job_id, |job| {
+        if matches!(job.status, LibraryRefreshJobStatus::Failed) {
+            return;
+        }
+        job.status = if job.skipped > 0 {
+            LibraryRefreshJobStatus::Cancelled
+        } else if job.failed > 0 {
+            LibraryRefreshJobStatus::CompletedWithErrors
+        } else {
+            LibraryRefreshJobStatus::Completed
+        };
+        job.finished_at = Some(now_millis());
+    })
+}
+
+fn update_refresh_job(
+    job_id: &str,
+    update: impl FnOnce(&mut LibraryRefreshStatus),
+) -> AppResult<()> {
+    let mut guard = refresh_job_slot()
+        .lock()
+        .map_err(|_| AppError::Database("刷新任务状态不可写".to_string()))?;
+    let job = guard
+        .as_mut()
+        .filter(|job| job.job_id == job_id)
+        .ok_or_else(|| AppError::Validation(format!("刷新任务不存在: {job_id}")))?;
+    update(job);
+    Ok(())
 }
 
 fn nodes_for_tag(conn: &Connection, tag: &str) -> AppResult<Vec<LibraryNodeIndexItem>> {
@@ -721,16 +1182,20 @@ fn nodes_for_tag(conn: &Connection, tag: &str) -> AppResult<Vec<LibraryNodeIndex
 fn query_tasks(
     conn: &Connection,
     target: Option<(&str, &str)>,
+    checked_filter: Option<bool>,
 ) -> AppResult<Vec<LibraryTaskSummary>> {
-    let (where_clause, params_vec): (&str, Vec<String>) = match target {
+    let (mut where_clause, params_vec): (String, Vec<String>) = match target {
         Some((document_path, node_id)) => (
-            "WHERE d.path = ?1 AND n.node_id = ?2 AND n.checked IS NOT NULL",
+            "WHERE d.path = ?1 AND n.node_id = ?2 AND n.checked IS NOT NULL".to_string(),
             vec![document_path.to_string(), node_id.to_string()],
         ),
-        None => ("WHERE n.checked IS NOT NULL", Vec::new()),
+        None => ("WHERE n.checked IS NOT NULL".to_string(), Vec::new()),
     };
+    if let Some(checked) = checked_filter {
+        where_clause.push_str(if checked { " AND n.checked = 1" } else { " AND n.checked = 0" });
+    }
     let sql = format!(
-        "SELECT d.document_id, d.title, d.path, n.node_id, n.text, n.checked, n.parent_path
+        "SELECT d.document_id, d.title, d.path, n.node_id, n.text, n.checked, n.parent_path, d.status
          FROM library_nodes n
          JOIN library_documents d ON d.document_id = n.document_id
          {where_clause}
@@ -755,15 +1220,27 @@ fn query_tasks(
 }
 
 fn read_task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibraryTaskSummary> {
+    let document_id: String = row.get(0)?;
+    let document_path: String = row.get(2)?;
+    let node_id: String = row.get(3)?;
+    let path = decode_path(&row.get::<_, String>(6)?);
     Ok(LibraryTaskSummary {
-        document_id: row.get(0)?,
+        document_id: document_id.clone(),
         document_title: row.get(1)?,
-        document_path: row.get(2)?,
-        node_id: row.get(3)?,
+        document_path: document_path.clone(),
+        node_id: node_id.clone(),
         text: row.get(4)?,
         checked: i64_to_bool(row.get::<_, i64>(5)?),
-        path: decode_path(&row.get::<_, String>(6)?),
+        path: path.clone(),
         tags: Vec::new(),
+        document_status: Some(status_from_db(row.get::<_, String>(7)?.as_str())),
+        location: Some(LibraryLocation {
+            document_id,
+            document_path,
+            node_id: Some(node_id),
+            path,
+            source: LibraryLocationSource::Task,
+        }),
     })
 }
 
@@ -895,17 +1372,21 @@ fn i64_to_bool(value: i64) -> bool {
 fn status_to_db(status: &LibraryDocumentStatus) -> &'static str {
     match status {
         LibraryDocumentStatus::Ready => "ready",
+        LibraryDocumentStatus::Stale => "stale",
         LibraryDocumentStatus::Missing => "missing",
         LibraryDocumentStatus::Invalid => "invalid",
-        LibraryDocumentStatus::Stale => "stale",
+        LibraryDocumentStatus::Indexing => "indexing",
+        LibraryDocumentStatus::Error => "error",
     }
 }
 
 fn status_from_db(status: &str) -> LibraryDocumentStatus {
     match status {
+        "stale" => LibraryDocumentStatus::Stale,
         "missing" => LibraryDocumentStatus::Missing,
         "invalid" => LibraryDocumentStatus::Invalid,
-        "stale" => LibraryDocumentStatus::Stale,
+        "indexing" => LibraryDocumentStatus::Indexing,
+        "error" => LibraryDocumentStatus::Error,
         _ => LibraryDocumentStatus::Ready,
     }
 }
@@ -915,7 +1396,7 @@ fn source_from_db(source: &str) -> LibrarySearchMatchSource {
         "title" => LibrarySearchMatchSource::Title,
         "note" => LibrarySearchMatchSource::Note,
         "tag" => LibrarySearchMatchSource::Tag,
-        _ => LibrarySearchMatchSource::Text,
+        _ => LibrarySearchMatchSource::Content,
     }
 }
 
@@ -1015,6 +1496,59 @@ mod tests {
     }
 
     #[test]
+    fn query_documents_supports_paging_filtering_and_sorting() {
+        let app_dir = tempdir().unwrap();
+        let first_path = app_dir.path().join("first.siwei.json");
+        let second_path = app_dir.path().join("second.siwei.json");
+        file_service::save_document(&first_path, &sample_doc("doc-1", "Alpha 文档")).unwrap();
+        file_service::save_document(&second_path, &sample_doc("doc-2", "Beta 文档")).unwrap();
+        library_service::add_library_doc(app_dir.path(), &first_path).unwrap();
+        library_service::add_library_doc(app_dir.path(), &second_path).unwrap();
+
+        let page = library_service::query_library_docs(
+            app_dir.path(),
+            crate::models::LibraryDocumentQuery {
+                limit: Some(1),
+                offset: Some(0),
+                sort_by: Some(crate::models::LibrarySortBy::Title),
+                sort_direction: Some(crate::models::LibrarySortDirection::Asc),
+                status: Some("ready".to_string()),
+                keyword: Some("文档".to_string()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(page.items.len(), 1);
+        assert!(page.has_more);
+        assert_eq!(page.total, Some(2));
+        assert_eq!(page.items[0].title, "Alpha 文档");
+    }
+
+    #[test]
+    fn query_search_returns_snippet_highlight_and_location() {
+        let app_dir = tempdir().unwrap();
+        let doc_path = app_dir.path().join("doc.siwei.json");
+        file_service::save_document(&doc_path, &sample_doc("doc-1", "项目文档")).unwrap();
+        library_service::add_library_doc(app_dir.path(), &doc_path).unwrap();
+
+        let page = library_service::query_library_search(
+            app_dir.path(),
+            crate::models::LibrarySearchQuery {
+                query: "中文检索".to_string(),
+                limit: Some(50),
+                offset: Some(0),
+                document_status: None,
+                matched_field: Some("content".to_string()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(page.items[0].matched_fields.as_ref().unwrap(), &vec![LibrarySearchMatchSource::Content]);
+        assert_eq!(page.items[0].highlight_ranges.as_ref().unwrap()[0].start, 2);
+        assert_eq!(page.items[0].location.as_ref().unwrap().node_id.as_deref(), Some("task"));
+    }
+
+    #[test]
     fn aggregates_tags_and_tasks() {
         let app_dir = tempdir().unwrap();
         let doc_path = app_dir.path().join("doc.siwei.json");
@@ -1068,5 +1602,36 @@ mod tests {
         fs::write(&doc_path, "{ broken").unwrap();
         let invalid = library_service::refresh_library_doc(app_dir.path(), &doc_path.to_string_lossy()).unwrap();
         assert_eq!(invalid.status, LibraryDocumentStatus::Invalid);
+    }
+
+    #[test]
+    fn refresh_job_returns_before_completion_and_can_be_cancelled() {
+        let app_dir = tempdir().unwrap();
+        for index in 0..20 {
+            let doc_path = app_dir.path().join(format!("doc-{index}.siwei.json"));
+            file_service::save_document(
+                &doc_path,
+                &sample_doc(&format!("doc-{index}"), &format!("项目文档 {index}")),
+            )
+            .unwrap();
+            library_service::add_library_doc(app_dir.path(), &doc_path).unwrap();
+        }
+
+        let job_id = library_service::start_library_refresh(app_dir.path()).unwrap();
+        let initial = library_service::get_library_refresh_status(app_dir.path(), &job_id).unwrap();
+
+        assert!(matches!(
+            initial.status,
+            crate::models::LibraryRefreshJobStatus::Queued
+                | crate::models::LibraryRefreshJobStatus::Running
+        ));
+        assert!(initial.processed < initial.total);
+
+        let cancelled = library_service::cancel_library_refresh(app_dir.path(), &job_id).unwrap();
+        assert!(matches!(
+            cancelled.status,
+            crate::models::LibraryRefreshJobStatus::CancelRequested
+                | crate::models::LibraryRefreshJobStatus::Completed
+        ));
     }
 }

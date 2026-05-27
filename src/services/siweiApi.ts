@@ -3,8 +3,14 @@ import { invoke } from '@tauri-apps/api/core'
 import type { OutlineDocument, RecentDocItem, SearchResult } from '../types/document'
 import type {
   LibraryDocumentItem,
+  LibraryDocumentQuery,
+  LibraryPage,
+  LibraryRefreshStatus,
+  LibrarySearchQuery,
   LibrarySearchResult,
+  LibraryTagQuery,
   LibraryTagSummary,
+  LibraryTaskQuery,
   LibraryTaskSummary,
 } from '../types/library'
 import { browserInvokeFallback } from './browserInvokeFallback'
@@ -76,6 +82,12 @@ export function getLibraryDocs(): Promise<LibraryDocumentItem[]> {
   return callCommand('get_library_docs')
 }
 
+export function queryLibraryDocs(
+  query: LibraryDocumentQuery = {},
+): Promise<LibraryPage<LibraryDocumentItem>> {
+  return callCommand('query_library_docs', { query })
+}
+
 export function addLibraryDoc(path: string): Promise<LibraryDocumentItem> {
   return callCommand('add_library_doc', { path })
 }
@@ -96,16 +108,50 @@ export function searchLibrary(query: string): Promise<LibrarySearchResult[]> {
   return callCommand('search_library', { query })
 }
 
+export function queryLibrarySearch(
+  query: LibrarySearchQuery,
+): Promise<LibraryPage<LibrarySearchResult>> {
+  return callCommand('query_library_search', { query })
+}
+
 export function getLibraryTags(): Promise<LibraryTagSummary[]> {
   return callCommand('get_library_tags')
+}
+
+export function queryLibraryTags(
+  query: LibraryTagQuery = {},
+): Promise<LibraryPage<LibraryTagSummary>> {
+  return callCommand('query_library_tags', { query })
 }
 
 export function getLibraryTasks(): Promise<LibraryTaskSummary[]> {
   return callCommand('get_library_tasks')
 }
 
+export function queryLibraryTasks(
+  query: LibraryTaskQuery = {},
+): Promise<LibraryPage<LibraryTaskSummary>> {
+  return callCommand('query_library_tasks', { query })
+}
+
 export function rebuildLibraryIndex(): Promise<LibraryDocumentItem[]> {
   return callCommand('rebuild_library_index')
+}
+
+export function startLibraryRefresh(): Promise<string> {
+  return callCommand('start_library_refresh')
+}
+
+export function getLibraryRefreshStatus(jobId: string): Promise<LibraryRefreshStatus> {
+  return callCommand('get_library_refresh_status', { jobId })
+}
+
+export function cancelLibraryRefresh(jobId: string): Promise<LibraryRefreshStatus> {
+  return callCommand('cancel_library_refresh', { jobId })
+}
+
+export function removeMissingLibraryDocs(): Promise<LibraryDocumentItem[]> {
+  return callCommand('remove_missing_library_docs')
 }
 
 export function toggleLibraryTask(

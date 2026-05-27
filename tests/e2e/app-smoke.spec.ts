@@ -75,6 +75,43 @@ test('reorders outline nodes by dragging the knit grip handle', async ({ page })
   expect(revertedNodeTexts.slice(0, 2)).toEqual(['开始记录你的想法', '第二条想法'])
 })
 
+test('edits nodes from the mind map and syncs the split outline', async ({ page }) => {
+  await page.goto('/')
+
+  const firstNodeInput = page.getByPlaceholder('输入编织内容...')
+  await expect(firstNodeInput).toHaveValue('开始记录你的想法')
+
+  await page.getByRole('button', { name: '思维导图' }).click()
+  await page.getByText('开始记录你的想法').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '新增同级节点' }).click()
+  await page.getByLabel('编辑节点文本').fill('导图同级节点')
+  await page.getByLabel('编辑节点文本').press('Shift+Enter')
+  await page.getByLabel('编辑节点文本').fill('导图子节点')
+  await page.mouse.click(20, 120)
+  await expect(page.getByText('导图同级节点')).toBeVisible()
+  await expect(page.getByText('导图子节点')).toBeVisible()
+
+  await page.getByText('导图同级节点').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '折叠' }).click()
+  await expect(page.getByText('1 个子节点')).toBeVisible()
+
+  await page.getByText('导图同级节点').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '展开' }).click()
+  await expect(page.getByText('导图子节点')).toBeVisible()
+
+  await page.getByText('导图子节点').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '删除节点' }).click()
+  await expect(page.getByText('已删除节点')).toBeVisible()
+  await expect(page.getByText('导图子节点')).toHaveCount(0)
+
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z')
+  await expect(page.getByText('导图子节点')).toBeVisible()
+
+  await page.getByRole('button', { name: '分屏' }).click()
+  await expect(page.getByText('导图同级节点')).toHaveCount(2)
+  await expect(page.getByText('导图子节点').first()).toBeVisible()
+})
+
 test('filters by tag and manages tasks from the workspace panel', async ({ page }) => {
   await page.goto('/')
 

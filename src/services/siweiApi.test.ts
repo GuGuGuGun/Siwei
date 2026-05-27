@@ -92,4 +92,46 @@ describe('siweiApi', () => {
       checked: true,
     })
   })
+
+  it('wraps v0.5.0 library query and refresh commands with stable payloads', async () => {
+    invokeMock.mockResolvedValue(undefined)
+
+    await api.queryLibraryDocs({ limit: 50, offset: 0, sortBy: 'updatedAt', status: 'ready' })
+    await api.queryLibrarySearch({
+      query: '节点',
+      limit: 50,
+      offset: 0,
+      documentStatus: 'all',
+      matchedField: 'content',
+    })
+    await api.queryLibraryTags({ limit: 50, offset: 0, sortBy: 'nodeCount' })
+    await api.queryLibraryTasks({ limit: 50, offset: 0, checked: 'unchecked' })
+    await api.startLibraryRefresh()
+    await api.getLibraryRefreshStatus('job-1')
+    await api.cancelLibraryRefresh('job-1')
+    await api.removeMissingLibraryDocs()
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'query_library_docs', {
+      query: { limit: 50, offset: 0, sortBy: 'updatedAt', status: 'ready' },
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'query_library_search', {
+      query: {
+        query: '节点',
+        limit: 50,
+        offset: 0,
+        documentStatus: 'all',
+        matchedField: 'content',
+      },
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'query_library_tags', {
+      query: { limit: 50, offset: 0, sortBy: 'nodeCount' },
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'query_library_tasks', {
+      query: { limit: 50, offset: 0, checked: 'unchecked' },
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(5, 'start_library_refresh', undefined)
+    expect(invokeMock).toHaveBeenNthCalledWith(6, 'get_library_refresh_status', { jobId: 'job-1' })
+    expect(invokeMock).toHaveBeenNthCalledWith(7, 'cancel_library_refresh', { jobId: 'job-1' })
+    expect(invokeMock).toHaveBeenNthCalledWith(8, 'remove_missing_library_docs', undefined)
+  })
 })

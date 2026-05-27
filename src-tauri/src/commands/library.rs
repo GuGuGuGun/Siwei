@@ -1,7 +1,11 @@
 use tauri::Manager;
 
 use crate::{
-    models::{LibraryDocumentItem, LibrarySearchResult, LibraryTagSummary, LibraryTaskSummary},
+    models::{
+        LibraryDocumentItem, LibraryDocumentQuery, LibraryPage, LibraryRefreshStatus,
+        LibrarySearchQuery, LibrarySearchResult, LibraryTagQuery, LibraryTagSummary,
+        LibraryTaskQuery, LibraryTaskSummary,
+    },
     services::library_service,
     utils::error::{AppError, CommandResult},
 };
@@ -10,6 +14,16 @@ use crate::{
 pub fn get_library_docs(app: tauri::AppHandle) -> Result<Vec<LibraryDocumentItem>, String> {
     app_data_dir(&app)
         .and_then(|dir| library_service::get_library_docs(&dir))
+        .into_command_result()
+}
+
+#[tauri::command]
+pub fn query_library_docs(
+    app: tauri::AppHandle,
+    query: LibraryDocumentQuery,
+) -> Result<LibraryPage<LibraryDocumentItem>, String> {
+    app_data_dir(&app)
+        .and_then(|dir| library_service::query_library_docs(&dir, query))
         .into_command_result()
 }
 
@@ -55,9 +69,29 @@ pub fn search_library(
 }
 
 #[tauri::command]
+pub fn query_library_search(
+    app: tauri::AppHandle,
+    query: LibrarySearchQuery,
+) -> Result<LibraryPage<LibrarySearchResult>, String> {
+    app_data_dir(&app)
+        .and_then(|dir| library_service::query_library_search(&dir, query))
+        .into_command_result()
+}
+
+#[tauri::command]
 pub fn get_library_tags(app: tauri::AppHandle) -> Result<Vec<LibraryTagSummary>, String> {
     app_data_dir(&app)
         .and_then(|dir| library_service::get_library_tags(&dir))
+        .into_command_result()
+}
+
+#[tauri::command]
+pub fn query_library_tags(
+    app: tauri::AppHandle,
+    query: LibraryTagQuery,
+) -> Result<LibraryPage<LibraryTagSummary>, String> {
+    app_data_dir(&app)
+        .and_then(|dir| library_service::query_library_tags(&dir, query))
         .into_command_result()
 }
 
@@ -69,9 +103,55 @@ pub fn get_library_tasks(app: tauri::AppHandle) -> Result<Vec<LibraryTaskSummary
 }
 
 #[tauri::command]
+pub fn query_library_tasks(
+    app: tauri::AppHandle,
+    query: LibraryTaskQuery,
+) -> Result<LibraryPage<LibraryTaskSummary>, String> {
+    app_data_dir(&app)
+        .and_then(|dir| library_service::query_library_tasks(&dir, query))
+        .into_command_result()
+}
+
+#[tauri::command]
 pub fn rebuild_library_index(app: tauri::AppHandle) -> Result<Vec<LibraryDocumentItem>, String> {
     app_data_dir(&app)
         .and_then(|dir| library_service::rebuild_library_index(&dir))
+        .into_command_result()
+}
+
+#[tauri::command]
+pub fn start_library_refresh(app: tauri::AppHandle) -> Result<String, String> {
+    app_data_dir(&app)
+        .and_then(|dir| library_service::start_library_refresh(&dir))
+        .into_command_result()
+}
+
+#[tauri::command]
+pub fn get_library_refresh_status(
+    app: tauri::AppHandle,
+    job_id: String,
+) -> Result<LibraryRefreshStatus, String> {
+    app_data_dir(&app)
+        .and_then(|dir| library_service::get_library_refresh_status(&dir, &job_id))
+        .into_command_result()
+}
+
+#[tauri::command]
+pub fn cancel_library_refresh(
+    app: tauri::AppHandle,
+    job_id: String,
+) -> Result<LibraryRefreshStatus, String> {
+    app_data_dir(&app)
+        .and_then(|dir| library_service::cancel_library_refresh(&dir, &job_id))
+        .into_command_result()
+}
+
+#[tauri::command]
+pub fn remove_missing_library_docs(
+    app: tauri::AppHandle,
+) -> Result<Vec<LibraryDocumentItem>, String> {
+    app_data_dir(&app)
+        .and_then(|dir| library_service::remove_missing_library_docs(&dir))
         .into_command_result()
 }
 

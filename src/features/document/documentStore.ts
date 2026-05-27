@@ -14,6 +14,7 @@ import {
   findPath,
   updateNodeAtPath,
   insertSiblingAtPath,
+  insertChildAtPath,
   deleteNodeAtPath,
   indentNodeAtPath,
   outdentNodeAtPath,
@@ -25,6 +26,17 @@ import {
 
 export type ViewMode = 'outline' | 'mindmap' | 'split'
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+
+export interface NodeOperationState {
+  canInsertSibling: boolean
+  canInsertChild: boolean
+  canDelete: boolean
+  canIndent: boolean
+  canOutdent: boolean
+  canMoveUp: boolean
+  canMoveDown: boolean
+  canToggleCollapse: boolean
+}
 
 interface HistorySnapshot {
   currentDoc: OutlineDocument
@@ -74,7 +86,10 @@ interface DocumentState {
   moveNode: (nodeId: string, direction: 'up' | 'down') => void
   moveNodeToSibling: (sourceNodeId: string, targetNodeId: string) => void
   insertNode: (nodeId: string, text?: string) => string | null
+  insertSiblingNode: (nodeId: string, text?: string) => string | null
+  insertChildNode: (parentNodeId: string, text?: string) => string | null
   deleteNode: (nodeId: string) => void
+  getNodeOperationState: (nodeId: string) => NodeOperationState
   toggleNodeCheck: (nodeId: string) => void
   updateNodeNote: (nodeId: string, note: string) => void
   clearNodeNote: (nodeId: string) => void
@@ -253,6 +268,25 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       ids.add(node.id)
     }
     node.children.forEach((child) => collectCollapsedIds(child, ids))
+  }
+
+  const createOutlineNode = (text: string): OutlineNode => {
+    const now = Date.now()
+    return {
+      id: generateId(),
+      text,
+      createdAt: now,
+      updatedAt: now,
+      children: [],
+    }
+  }
+
+  const getNodeAtPath = (root: OutlineNode, path: number[]): OutlineNode => {
+    let node = root
+    for (const index of path) {
+      node = node.children[index]
+    }
+    return node
   }
 
   return {
@@ -664,15 +698,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       const { currentDoc } = get()
       if (!currentDoc || !before) return null
 
-      const newId = generateId()
       const now = Date.now()
-      const newNode: OutlineNode = {
-        id: newId,
-        text,
-        createdAt: now,
-        updatedAt: now,
-        children: [],
-      }
+      const newNode = createOutlineNode(text)
 
       // If active node is root, append child directly
       if (currentDoc.root.id === nodeId) {
@@ -685,11 +712,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
             },
             updatedAt: now,
           },
-          selectedNodeId: newId,
+          selectedNodeId: newNode.id,
           isDirty: true,
         })
         setHistoryAfterMutation(before)
-        return newId
+        return newNode.id
       }
 
       const path = findPath(currentDoc.root, nodeId)
@@ -716,11 +743,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
             root: newRoot,
             updatedAt: now,
           },
-          selectedNodeId: newId,
+          selectedNodeId: newNode.id,
           isDirty: true,
         })
         setHistoryAfterMutation(before)
-        return newId
+        return newNode.id
       }
 
       // Insert as sibling after the node
@@ -731,11 +758,63 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           root: newRoot,
           updatedAt: now,
         },
-        selectedNodeId: newId,
+        selectedNodeId: newNode.id,
         isDirty: true,
       })
       setHistoryAfterMutation(before)
-      return newId
+      return newNode.id
+    },
+
+    insertSiblingNode: (nodeId, text = '') => {
+      const before = beginMutation()
+      const { currentDoc } = get()
+      if (!currentDoc || !before || currentDoc.root.id === nodeId) return null
+
+      const path = findPath(currentDoc.root, nodeId)
+      if (!path) return null
+
+      const newNode = createOutlineNode(text)
+      const newRoot = insertSiblingAtPath(currentDoc.root, path, newNode)
+      if (newRoot === currentDoc.root) return null
+
+      set({
+        currentDoc: {
+          ...currentDoc,
+          root: newRoot,
+          updatedAt: Date.now(),
+        },
+        selectedNodeId: newNode.id,
+        isDirty: true,
+      })
+      setHistoryAfterMutation(before)
+      return newNode.id
+    },
+
+    insertChildNode: (parentNodeId, text = '') => {
+      const before = beginMutation()
+      const { currentDoc, collapsedNodeIds } = get()
+      if (!currentDoc || !before) return null
+
+      const path = findPath(currentDoc.root, parentNodeId)
+      if (!path) return null
+
+      const newNode = createOutlineNode(text)
+      const newRoot = insertChildAtPath(currentDoc.root, path, newNode)
+      const newCollapsedIds = new Set(collapsedNodeIds)
+      newCollapsedIds.delete(parentNodeId)
+
+      set({
+        currentDoc: {
+          ...currentDoc,
+          root: newRoot,
+          updatedAt: Date.now(),
+        },
+        collapsedNodeIds: newCollapsedIds,
+        selectedNodeId: newNode.id,
+        isDirty: true,
+      })
+      setHistoryAfterMutation(before)
+      return newNode.id
     },
 
     deleteNode: (nodeId) => {
@@ -777,6 +856,52 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         isDirty: true,
       })
       setHistoryAfterMutation(before)
+    },
+
+    getNodeOperationState: (nodeId) => {
+      const { currentDoc } = get()
+      const disabled: NodeOperationState = {
+        canInsertSibling: false,
+        canInsertChild: false,
+        canDelete: false,
+        canIndent: false,
+        canOutdent: false,
+        canMoveUp: false,
+        canMoveDown: false,
+        canToggleCollapse: false,
+      }
+      if (!currentDoc) return disabled
+
+      const path = findPath(currentDoc.root, nodeId)
+      if (!path) return disabled
+
+      const node = getNodeAtPath(currentDoc.root, path)
+      if (path.length === 0) {
+        return {
+          canInsertSibling: false,
+          canInsertChild: true,
+          canDelete: false,
+          canIndent: false,
+          canOutdent: false,
+          canMoveUp: false,
+          canMoveDown: false,
+          canToggleCollapse: node.children.length > 0,
+        }
+      }
+
+      const parent = getNodeAtPath(currentDoc.root, path.slice(0, -1))
+      const index = path[path.length - 1]
+
+      return {
+        canInsertSibling: true,
+        canInsertChild: true,
+        canDelete: true,
+        canIndent: index > 0,
+        canOutdent: path.length > 1,
+        canMoveUp: index > 0,
+        canMoveDown: index < parent.children.length - 1,
+        canToggleCollapse: node.children.length > 0,
+      }
     },
 
     toggleNodeCheck: (nodeId) => {

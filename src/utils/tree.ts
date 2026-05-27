@@ -62,6 +62,21 @@ export function insertSiblingAtPath(
 }
 
 /**
+ * Inserts a new node as the last child of the node at the specified path.
+ * Returns a new tree.
+ */
+export function insertChildAtPath(
+  root: OutlineNode,
+  path: number[],
+  newNode: OutlineNode
+): OutlineNode {
+  return updateNodeAtPath(root, path, (parent) => ({
+    ...parent,
+    children: [...parent.children, newNode],
+  }));
+}
+
+/**
  * Deletes the node at the specified path.
  * Returns a new tree.
  */

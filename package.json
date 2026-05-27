@@ -1,14 +1,15 @@
 {
   "name": "siwei",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "private": true,
   "author": "GuGuGuGun",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc && vite build",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/*.node-test.mjs",
     "test:e2e": "playwright test",
+    "generate:library-fixtures": "node scripts/generate-library-fixtures.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

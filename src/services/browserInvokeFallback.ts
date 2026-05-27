@@ -1,6 +1,8 @@
 import type { OutlineDocument, RecentDocItem, SearchResult } from '../types/document'
 import type {
   LibraryDocumentItem,
+  LibraryPage,
+  LibraryRefreshStatus,
   LibrarySearchResult,
   LibraryTagSummary,
   LibraryTaskSummary,
@@ -40,6 +42,7 @@ function createDemoDocument(): OutlineDocument {
 let currentDoc = createDemoDocument()
 let recentDocs: RecentDocItem[] = []
 let libraryDocs: LibraryDocumentItem[] = []
+let refreshStatus: LibraryRefreshStatus | null = null
 
 function searchNode(
   node: OutlineDocument['root'],
@@ -147,6 +150,8 @@ export async function browserInvokeFallback<T>(command: string, args?: CommandAr
     case 'refresh_library':
     case 'rebuild_library_index':
       return libraryDocs as T
+    case 'query_library_docs':
+      return page(libraryDocs, args?.query as { limit?: number; offset?: number } | undefined) as T
     case 'add_library_doc':
     case 'refresh_library_doc': {
       const path = String(args?.path ?? 'demo.siwei.json')
@@ -173,6 +178,10 @@ export async function browserInvokeFallback<T>(command: string, args?: CommandAr
       return undefined as T
     case 'search_library':
       return searchLibraryFallback(String(args?.query ?? '')) as T
+    case 'query_library_search': {
+      const query = args?.query as { query?: string; limit?: number; offset?: number } | undefined
+      return page(searchLibraryFallback(String(query?.query ?? '')), query) as T
+    }
     case 'get_library_tags':
       return collectTags(currentDoc.root).map<LibraryTagSummary>((tag) => ({
         tag,
@@ -180,6 +189,16 @@ export async function browserInvokeFallback<T>(command: string, args?: CommandAr
         nodeCount: 1,
         items: [],
       })) as T
+    case 'query_library_tags': {
+      const query = args?.query as { limit?: number; offset?: number } | undefined
+      const tags = collectTags(currentDoc.root).map<LibraryTagSummary>((tag) => ({
+        tag,
+        documentCount: 1,
+        nodeCount: 1,
+        items: [],
+      }))
+      return page(tags, query) as T
+    }
     case 'get_library_tasks':
       return collectTasks(currentDoc.root).map<LibraryTaskSummary>((task) => ({
         documentId: currentDoc.id,
@@ -191,6 +210,69 @@ export async function browserInvokeFallback<T>(command: string, args?: CommandAr
         path: task.path,
         tags: task.tags,
       })) as T
+    case 'query_library_tasks': {
+      const query = args?.query as { checked?: string; limit?: number; offset?: number } | undefined
+      let tasks = collectTasks(currentDoc.root).map<LibraryTaskSummary>((task) => ({
+        documentId: currentDoc.id,
+        documentTitle: currentDoc.title,
+        documentPath: libraryDocs[0]?.path ?? 'demo.siwei.json',
+        nodeId: task.nodeId,
+        text: task.text,
+        checked: task.checked,
+        path: task.path,
+        tags: task.tags,
+        documentStatus: 'ready',
+        location: {
+          documentId: currentDoc.id,
+          documentPath: libraryDocs[0]?.path ?? 'demo.siwei.json',
+          nodeId: task.nodeId,
+          path: task.path,
+          source: 'task',
+        },
+      }))
+      if (query?.checked === 'checked') tasks = tasks.filter((task) => task.checked)
+      if (query?.checked === 'unchecked') tasks = tasks.filter((task) => !task.checked)
+      return page(tasks, query) as T
+    }
+    case 'start_library_refresh':
+      refreshStatus = {
+        jobId: `browser-refresh-${now()}`,
+        status: 'running',
+        total: libraryDocs.length,
+        processed: 0,
+        succeeded: 0,
+        failed: 0,
+        skipped: 0,
+        errors: [],
+        startedAt: now(),
+      }
+      return refreshStatus.jobId as T
+    case 'get_library_refresh_status':
+      if (!refreshStatus) throw new Error('刷新任务不存在')
+      if (refreshStatus.status === 'running') {
+        refreshStatus = {
+          ...refreshStatus,
+          status: 'completed',
+          processed: refreshStatus.total,
+          succeeded: refreshStatus.total,
+          finishedAt: now(),
+        }
+      }
+      return refreshStatus as T
+    case 'cancel_library_refresh':
+      if (!refreshStatus) throw new Error('刷新任务不存在')
+      if (refreshStatus.status === 'running') {
+        refreshStatus = {
+          ...refreshStatus,
+          status: 'cancelled',
+          skipped: Math.max(refreshStatus.total - refreshStatus.processed, 0),
+          finishedAt: now(),
+        }
+      }
+      return refreshStatus as T
+    case 'remove_missing_library_docs':
+      libraryDocs = libraryDocs.filter((doc) => doc.status !== 'missing')
+      return libraryDocs as T
     case 'toggle_library_task': {
       const nodeId = String(args?.nodeId ?? '')
       const checked = Boolean(args?.checked)
@@ -260,9 +342,19 @@ function searchLibraryFallback(query: string): LibrarySearchResult[] {
       documentId: currentDoc.id,
       documentTitle: currentDoc.title,
       documentPath: libraryDocs[0]?.path ?? 'demo.siwei.json',
+      documentStatus: 'ready',
       text: currentDoc.title,
       path: [],
+      snippet: currentDoc.title,
+      highlightRanges: [{ start: currentDoc.title.toLowerCase().indexOf(trimmed), end: currentDoc.title.toLowerCase().indexOf(trimmed) + trimmed.length }],
+      matchedFields: ['title'],
       matchSources: ['title'],
+      location: {
+        documentId: currentDoc.id,
+        documentPath: libraryDocs[0]?.path ?? 'demo.siwei.json',
+        path: [],
+        source: 'search',
+      },
     })
   }
   const documentResults: SearchResult[] = []
@@ -272,11 +364,35 @@ function searchLibraryFallback(query: string): LibrarySearchResult[] {
       documentId: currentDoc.id,
       documentTitle: currentDoc.title,
       documentPath: libraryDocs[0]?.path ?? 'demo.siwei.json',
+      documentStatus: 'ready',
       nodeId: result.nodeId,
       text: result.text,
       path: result.path,
-      matchSources: result.matchSources,
+      snippet: result.text,
+      highlightRanges: result.matchIndices.map(([start, end]) => ({ start, end })),
+      matchedFields: result.matchSources.map((source) => source === 'text' ? 'content' : source),
+      matchSources: result.matchSources.map((source) => source === 'text' ? 'content' : source),
+      location: {
+        documentId: currentDoc.id,
+        documentPath: libraryDocs[0]?.path ?? 'demo.siwei.json',
+        nodeId: result.nodeId,
+        path: result.path,
+        source: 'search',
+      },
     })
   })
   return results
+}
+
+function page<T>(
+  items: T[],
+  query: { limit?: number; offset?: number } | undefined,
+): LibraryPage<T> {
+  const offset = query?.offset ?? 0
+  const limit = query?.limit ?? 50
+  return {
+    items: items.slice(offset, offset + limit),
+    hasMore: offset + limit < items.length,
+    total: items.length,
+  }
 }
