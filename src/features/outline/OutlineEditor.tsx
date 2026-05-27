@@ -3,6 +3,10 @@ import { useDocumentStore } from '../document/documentStore'
 import { OutlineNodeItem } from './OutlineNodeItem'
 import { filterVisibleTree } from '../filter/filterUtils'
 import { FileText, Plus } from 'lucide-react'
+import { NodeContextMenu } from '../document/NodeContextMenu'
+import { NodeDeleteDialog } from '../document/NodeDeleteDialog'
+import { useNodeContextMenuController } from '../document/useNodeContextMenuController'
+import { formatDeleteConfirmation } from '../document/nodeActions'
 
 export const OutlineEditor: React.FC = () => {
   const currentDoc = useDocumentStore((s) => s.currentDoc)
@@ -15,6 +19,26 @@ export const OutlineEditor: React.FC = () => {
   const insertNode = useDocumentStore((s) => s.insertNode)
   const beginTextEditSession = useDocumentStore((s) => s.beginTextEditSession)
   const commitTextEditSession = useDocumentStore((s) => s.commitTextEditSession)
+  const getNodeOperationState = useDocumentStore((s) => s.getNodeOperationState)
+
+  const startEditing = React.useCallback((nodeId: string) => {
+    selectNode(nodeId)
+    beginTextEditSession(nodeId)
+  }, [beginTextEditSession, selectNode])
+
+  const {
+    contextMenu,
+    contextNode,
+    deleteTarget,
+    closeContextMenu,
+    openContextMenu,
+    runAction,
+    confirmDelete,
+    cancelDelete,
+  } = useNodeContextMenuController({
+    currentDoc,
+    onStartEditing: startEditing,
+  })
 
   const visibleNodes = React.useMemo(() => {
     if (!currentDoc) return []
@@ -43,6 +67,7 @@ export const OutlineEditor: React.FC = () => {
 
   const handleEmptyClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
+      closeContextMenu()
       if (visibleNodes.length > 0) {
         selectNode(visibleNodes[visibleNodes.length - 1].node.id)
       } else {
@@ -81,6 +106,7 @@ export const OutlineEditor: React.FC = () => {
             isSelected={selectedNodeId === item.node.id}
             isCollapsed={collapsedNodeIds.has(item.node.id)}
             onNavigate={(dir) => handleNavigate(item.node.id, dir)}
+            onNodeContextMenu={(event, nodeId) => openContextMenu(nodeId, event.clientX, event.clientY)}
           />
         ))}
 
@@ -94,6 +120,24 @@ export const OutlineEditor: React.FC = () => {
           </div>
         )}
       </div>
+
+      {contextMenu && contextNode && (
+        <NodeContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          isCollapsed={collapsedNodeIds.has(contextMenu.nodeId)}
+          operationState={getNodeOperationState(contextMenu.nodeId)}
+          onAction={(action) => runAction(contextMenu.nodeId, action)}
+        />
+      )}
+
+      {deleteTarget && (
+        <NodeDeleteDialog
+          message={formatDeleteConfirmation(deleteTarget)}
+          onCancel={cancelDelete}
+          onConfirm={confirmDelete}
+        />
+      )}
     </div>
   )
 }

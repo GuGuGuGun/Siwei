@@ -13,6 +13,7 @@ interface OutlineNodeItemProps {
   isSelected: boolean
   isCollapsed: boolean
   onNavigate: (direction: 'up' | 'down') => void
+  onNodeContextMenu?: (event: React.MouseEvent, nodeId: string) => void
 }
 
 // 4-hole Bone Button Fold Toggle
@@ -71,6 +72,7 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   isSelected,
   isCollapsed,
   onNavigate,
+  onNodeContextMenu,
 }) => {
   const selectNode = useDocumentStore((s) => s.selectNode)
   const updateNodeText = useDocumentStore((s) => s.updateNodeText)
@@ -297,6 +299,11 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
       onClick={(e) => {
         e.stopPropagation()
         selectNode(node.id)
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onNodeContextMenu?.(event, node.id)
       }}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
