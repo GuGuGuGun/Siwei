@@ -1,9 +1,18 @@
 import React from 'react'
-import { Search, X, FolderOpen, CornerDownRight, CheckSquare, Tag } from 'lucide-react'
+import {
+  CheckSquare,
+  CornerDownRight,
+  FolderOpen,
+  ListTodo,
+  Search,
+  Tag,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useDocumentStore } from '../document/documentStore'
 import { searchDocument } from '../../services/siweiApi'
-import { SearchResult } from '../../types/document'
-import { findPath } from '../../utils/tree'
+import { OutlineNode, SearchResult } from '../../types/document'
+import { collectTags, collectTasks, findNodePath } from '../filter/filterUtils'
 import { toast } from '../../components/common/Toast'
 
 interface SearchPanelProps {
@@ -13,24 +22,21 @@ interface SearchPanelProps {
 
 export const SearchPanel: React.FC<SearchPanelProps> = ({ isOpen, onClose }) => {
   const currentDoc = useDocumentStore((s) => s.currentDoc)
-  const collapsedNodeIds = useDocumentStore((s) => s.collapsedNodeIds)
   const filter = useDocumentStore((s) => s.filter)
+  const setFilterQuery = useDocumentStore((s) => s.setFilterQuery)
   const setFilterTag = useDocumentStore((s) => s.setFilterTag)
   const setFilterChecked = useDocumentStore((s) => s.setFilterChecked)
   const clearFilters = useDocumentStore((s) => s.clearFilters)
-  const selectNode = useDocumentStore((s) => s.selectNode)
+  const focusNode = useDocumentStore((s) => s.focusNode)
+  const renameTag = useDocumentStore((s) => s.renameTag)
+  const removeTagFromDocument = useDocumentStore((s) => s.removeTagFromDocument)
+  const mergeTag = useDocumentStore((s) => s.mergeTag)
+  const toggleNodeChecked = useDocumentStore((s) => s.toggleNodeChecked)
 
-  const [query, setQuery] = React.useState('')
+  const [activeTab, setActiveTab] = React.useState<'search' | 'tags' | 'tasks'>('search')
+  const [taskFilter, setTaskFilter] = React.useState<'all' | 'unchecked' | 'checked'>('all')
   const [results, setResults] = React.useState<SearchResult[]>([])
   const [isSearching, setIsSearching] = React.useState(false)
-
-  // Clear query on close
-  React.useEffect(() => {
-    if (!isOpen) {
-      setQuery('')
-      setResults([])
-    }
-  }, [isOpen])
 
   React.useEffect(() => {
     if (!isOpen) return
@@ -48,7 +54,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ isOpen, onClose }) => 
 
   // Trigger search on query change
   React.useEffect(() => {
-    if (!currentDoc || !query.trim()) {
+    if (!currentDoc || !filter.query.trim()) {
       setResults([])
       return
     }
@@ -56,7 +62,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ isOpen, onClose }) => 
     const runSearch = async () => {
       setIsSearching(true)
       try {
-        const matches = await searchDocument(currentDoc, query)
+        const matches = await searchDocument(currentDoc, filter.query)
         setResults(matches)
       } catch (err) {
         console.error('Search error:', err)
@@ -67,23 +73,27 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ isOpen, onClose }) => 
 
     const timer = setTimeout(runSearch, 250)
     return () => clearTimeout(timer)
-  }, [query, currentDoc])
+  }, [filter.query, currentDoc])
+
+  const tags = React.useMemo(() => {
+    if (!currentDoc) return []
+    return collectTags(currentDoc.root)
+  }, [currentDoc])
+
+  const tasks = React.useMemo(() => {
+    if (!currentDoc) return []
+    return collectTasks(currentDoc.root).filter((task) => {
+      if (taskFilter === 'checked') return task.checked
+      if (taskFilter === 'unchecked') return !task.checked
+      return true
+    })
+  }, [currentDoc, taskFilter])
 
   const filteredResults = React.useMemo(() => {
     if (!currentDoc) return []
 
-    const findNode = (nodeId: string) => {
-      const path = findPath(currentDoc.root, nodeId)
-      if (!path) return null
-      let node = currentDoc.root
-      for (const index of path) {
-        node = node.children[index]
-      }
-      return node
-    }
-
     return results.filter((result) => {
-      const node = findNode(result.nodeId)
+      const node = findNode(currentDoc.root, result.nodeId)
       if (!node) return false
 
       const tagMatches = !filter.tag || (node.tags ?? []).includes(filter.tag)
@@ -98,38 +108,34 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ isOpen, onClose }) => 
   }, [currentDoc, filter, results])
 
   const handleResultClick = (nodeId: string) => {
-    if (!currentDoc) return
-
-    // 1. Find the path to the node to expand all collapsed parents
-    const path = findPath(currentDoc.root, nodeId)
-    if (path) {
-      const newCollapsed = new Set(collapsedNodeIds)
-      let curr = currentDoc.root
-      
-      // Expand parents along the path
-      for (const idx of path.slice(0, -1)) {
-        curr = curr.children[idx]
-        newCollapsed.delete(curr.id)
-      }
-      
-      // Update collapsed set in store
-      useDocumentStore.setState({ collapsedNodeIds: newCollapsed })
-    }
-
-    // 2. Select node
-    selectNode(nodeId)
-    
-    // 3. Scroll elements into view
-    setTimeout(() => {
-      const el =
-        document.querySelector(`[placeholder="输入编织内容..."]`) ||
-        document.querySelector(`[placeholder="输入节点内容..."]`) ||
-        document.querySelector('.bg-zinc-900')
-      el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 100)
-
+    focusNode(nodeId)
     onClose()
     toast.info('已定位到搜索节点')
+  }
+
+  const handleTaskClick = (nodeId: string, checked: boolean) => {
+    if (
+      (filter.checked === 'checked' && !checked) ||
+      (filter.checked === 'unchecked' && checked) ||
+      filter.checked === 'all'
+    ) {
+      setFilterChecked('task')
+    }
+    focusNode(nodeId)
+    onClose()
+    toast.info('已定位到任务节点')
+  }
+
+  const handleRenameTag = (tag: string) => {
+    const next = window.prompt('输入新的标签名称', tag)
+    if (next === null) return
+    renameTag(tag, next)
+  }
+
+  const handleMergeTag = (tag: string) => {
+    const next = window.prompt('输入要合并到的标签名称', filter.tag ?? '')
+    if (next === null) return
+    mergeTag(tag, next)
   }
 
   // Highlighting matching strings using mark tags
@@ -170,6 +176,8 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ isOpen, onClose }) => 
     return '正文命中'
   }
 
+  const hasActiveFilter = Boolean(filter.query.trim() || filter.tag || filter.checked !== 'all')
+
   if (!isOpen) return null
 
   return (
@@ -178,7 +186,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ isOpen, onClose }) => 
       <div className="flex h-14 items-center justify-between border-b border-zinc-200/60 px-5 shrink-0 bg-white/50">
         <div className="flex items-center gap-2.5">
           <Search size={16} className="text-zinc-800 font-bold" strokeWidth={2.5} />
-          <span className="font-semibold text-[15px] text-zinc-900 tracking-wide">搜索节点</span>
+          <span className="font-semibold text-[15px] text-zinc-900 tracking-wide">工作台</span>
         </div>
         <button
           onClick={onClose}
@@ -188,16 +196,43 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ isOpen, onClose }) => 
         </button>
       </div>
 
-      {/* Search Input Area */}
+      <div className="border-b border-zinc-200/60 bg-zinc-50/50 px-5 pt-4">
+        <div className="grid grid-cols-3 gap-1 rounded-md border border-zinc-200 bg-white p-0.5 shadow-sm">
+          {[
+            { key: 'search', label: '搜索', icon: Search },
+            { key: 'tags', label: '标签', icon: Tag },
+            { key: 'tasks', label: '任务', icon: ListTodo },
+          ].map((tab) => {
+            const Icon = tab.icon
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key as typeof activeTab)}
+                className={`flex items-center justify-center gap-1.5 rounded-[4px] px-2 py-1.5 text-xs font-medium transition ${
+                  activeTab === tab.key
+                    ? 'bg-zinc-900 text-white'
+                    : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
+                }`}
+              >
+                <Icon size={13} />
+                {tab.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Shared Filter Area */}
       <div className="p-5 border-b border-zinc-200/60 bg-zinc-50/50">
         <div className="relative shadow-sm rounded-lg">
           <input
             type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={filter.query}
+            onChange={(e) => setFilterQuery(e.target.value)}
             className="w-full rounded-lg border border-zinc-200 bg-white pl-9 pr-4 py-2.5 text-sm text-zinc-800 outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400/20 transition placeholder-zinc-400"
             placeholder="输入关键词进行搜索..."
-            autoFocus
+            autoFocus={activeTab === 'search'}
           />
           <Search className="absolute left-3 top-3 h-4 w-4 text-zinc-400" />
         </div>
@@ -226,7 +261,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ isOpen, onClose }) => 
               placeholder="标签筛选"
             />
           </div>
-          {(filter.tag || filter.checked !== 'all') && (
+          {hasActiveFilter && (
             <button
               type="button"
               onClick={clearFilters}
@@ -238,73 +273,197 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ isOpen, onClose }) => 
         </div>
       </div>
 
-      {/* Results List */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-[#FCFCFB]">
-        {isSearching && (
-          <div className="text-center text-xs text-zinc-400 py-8 font-medium">正在搜索...</div>
-        )}
+        {activeTab === 'search' && (
+          <>
+            {isSearching && (
+              <div className="text-center text-xs text-zinc-400 py-8 font-medium">正在搜索...</div>
+            )}
 
-        {!isSearching && filteredResults.map((result) => (
-          <button
-            key={result.nodeId}
-            onClick={() => handleResultClick(result.nodeId)}
-            className="w-full text-left rounded-xl border border-zinc-200/60 bg-white p-3.5 hover:shadow-[0_4px_12px_rgba(0,0,0,0.03)] hover:border-zinc-300 transition-all flex flex-col gap-2 focus:outline-none"
-          >
-            {/* Breadcrumb Path */}
-            {result.path && result.path.length > 0 && (
-              <div className="flex items-center gap-1.5 text-[10px] font-medium text-zinc-400 overflow-hidden truncate">
-                <FolderOpen size={11} className="shrink-0" />
-                <span>{result.path.join(' > ')}</span>
+            {!isSearching && filteredResults.map((result) => (
+              <button
+                key={result.nodeId}
+                onClick={() => handleResultClick(result.nodeId)}
+                className="w-full text-left rounded-xl border border-zinc-200/60 bg-white p-3.5 hover:shadow-[0_4px_12px_rgba(0,0,0,0.03)] hover:border-zinc-300 transition-all flex flex-col gap-2 focus:outline-none"
+              >
+                {result.path && result.path.length > 0 && (
+                  <div className="flex items-center gap-1.5 text-[10px] font-medium text-zinc-400 overflow-hidden truncate">
+                    <FolderOpen size={11} className="shrink-0" />
+                    <span>{result.path.join(' > ')}</span>
+                  </div>
+                )}
+
+                <div className="flex items-start gap-2 text-[13px] text-zinc-800 leading-snug">
+                  <CornerDownRight size={14} className="shrink-0 mt-0.5 text-zinc-300" />
+                  <div className="break-all font-medium">
+                    {renderHighlightedText(result.text, result.matchIndices)}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 pl-5">
+                  {result.matchSources.map((source) => (
+                    <span
+                      key={source}
+                      className="rounded px-1.5 py-0.5 text-[9px] font-semibold bg-zinc-100 text-zinc-500 border border-zinc-200"
+                    >
+                      {sourceLabel(source)}
+                    </span>
+                  ))}
+                </div>
+
+                {result.matches
+                  .filter((match) => match.source !== 'text')
+                  .map((match, index) => (
+                    <div
+                      key={`${match.source}-${index}`}
+                      className="mt-1 ml-5 rounded-md bg-zinc-50 px-2.5 py-1.5 text-[11px] text-zinc-600 border border-zinc-100"
+                    >
+                      <span className="mr-1.5 font-medium text-zinc-400">{sourceLabel(match.source)}:</span>
+                      {match.source === 'tag'
+                        ? <span className="font-semibold text-zinc-700">#{match.value}</span>
+                        : renderHighlightedText(match.value, match.matchIndices)}
+                    </div>
+                  ))}
+              </button>
+            ))}
+
+            {!isSearching && filter.query.trim() !== '' && filteredResults.length === 0 && (
+              <div className="text-center text-sm font-medium text-zinc-400 py-10">
+                未找到匹配节点
               </div>
             )}
 
-            {/* Matching text */}
-            <div className="flex items-start gap-2 text-[13px] text-zinc-800 leading-snug">
-              <CornerDownRight size={14} className="shrink-0 mt-0.5 text-zinc-300" />
-              <div className="break-all font-medium">
-                {renderHighlightedText(result.text, result.matchIndices)}
+            {filter.query.trim() === '' && (
+              <div className="text-center text-xs font-medium text-zinc-400 py-10">
+                输入关键词在当前文档中进行全文搜索
               </div>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5 pl-5">
-              {result.matchSources.map((source) => (
-                <span
-                  key={source}
-                  className="rounded px-1.5 py-0.5 text-[9px] font-semibold bg-zinc-100 text-zinc-500 border border-zinc-200"
-                >
-                  {sourceLabel(source)}
-                </span>
-              ))}
-            </div>
-
-            {result.matches
-              .filter((match) => match.source !== 'text')
-              .map((match, index) => (
-                <div
-                  key={`${match.source}-${index}`}
-                  className="mt-1 ml-5 rounded-md bg-zinc-50 px-2.5 py-1.5 text-[11px] text-zinc-600 border border-zinc-100"
-                >
-                  <span className="mr-1.5 font-medium text-zinc-400">{sourceLabel(match.source)}:</span>
-                  {match.source === 'tag'
-                    ? <span className="font-semibold text-zinc-700">#{match.value}</span>
-                    : renderHighlightedText(match.value, match.matchIndices)}
-                </div>
-              ))}
-          </button>
-        ))}
-
-        {!isSearching && query.trim() !== '' && filteredResults.length === 0 && (
-          <div className="text-center text-sm font-medium text-zinc-400 py-10">
-            未找到匹配节点
-          </div>
+            )}
+          </>
         )}
 
-        {query.trim() === '' && (
-          <div className="text-center text-xs font-medium text-zinc-400 py-10">
-            输入关键词在当前文档中进行全文搜索
-          </div>
+        {activeTab === 'tags' && (
+          <>
+            {tags.map((item) => (
+              <div
+                key={item.tag}
+                className="rounded-lg border border-zinc-200/70 bg-white p-3 shadow-sm"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFilterTag(item.tag)}
+                    className="flex min-w-0 items-center gap-2 text-left focus:outline-none"
+                  >
+                    <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-700">
+                      #{item.tag}
+                    </span>
+                    <span className="text-[11px] text-zinc-400">{item.count} 个节点</span>
+                  </button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleRenameTag(item.tag)}
+                      className="rounded px-2 py-1 text-[11px] text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                    >
+                      重命名
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleMergeTag(item.tag)}
+                      className="rounded px-2 py-1 text-[11px] text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                    >
+                      合并
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeTagFromDocument(item.tag)}
+                      className="rounded p-1.5 text-zinc-400 hover:bg-rose-50 hover:text-rose-600"
+                      title="删除标签"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {tags.length === 0 && (
+              <div className="text-center text-xs font-medium text-zinc-400 py-10">
+                当前文档没有标签
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === 'tasks' && (
+          <>
+            <div className="mb-3 grid grid-cols-3 gap-1 rounded-md border border-zinc-200 bg-white p-0.5">
+              {[
+                { key: 'all', label: '全部' },
+                { key: 'unchecked', label: '未完成' },
+                { key: 'checked', label: '已完成' },
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setTaskFilter(item.key as typeof taskFilter)}
+                  className={`rounded-[4px] px-2 py-1.5 text-xs font-medium ${
+                    taskFilter === item.key
+                      ? 'bg-zinc-900 text-white'
+                      : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {tasks.map((task) => (
+              <div
+                key={task.nodeId}
+                className="rounded-lg border border-zinc-200/70 bg-white p-3 shadow-sm"
+              >
+                <div className="flex items-start gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleNodeChecked(task.nodeId)}
+                    className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border border-zinc-300 bg-white text-[10px] font-bold text-zinc-700 hover:border-zinc-500"
+                    title={task.checked ? '标记为未完成' : '标记为已完成'}
+                  >
+                    {task.checked ? '✓' : ''}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTaskClick(task.nodeId, task.checked)}
+                    className="min-w-0 flex-1 text-left focus:outline-none"
+                  >
+                    <div className={`truncate text-sm font-medium ${task.checked ? 'text-zinc-400 line-through' : 'text-zinc-800'}`}>
+                      {task.text || '未命名任务'}
+                    </div>
+                    {task.path.length > 0 && (
+                      <div className="mt-1 flex items-center gap-1 text-[10px] text-zinc-400">
+                        <FolderOpen size={11} />
+                        <span className="truncate">{task.path.join(' > ')}</span>
+                      </div>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {tasks.length === 0 && (
+              <div className="text-center text-xs font-medium text-zinc-400 py-10">
+                当前范围没有任务
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
   )
+}
+
+function findNode(root: OutlineNode, nodeId: string): OutlineNode | null {
+  const path = findNodePath(root, nodeId)
+  return path?.[path.length - 1] ?? null
 }

@@ -18,7 +18,7 @@ describe('SearchPanel', () => {
       currentDoc: createDocument(),
       selectedNodeId: null,
       collapsedNodeIds: new Set<string>(),
-      filter: { tag: null, checked: 'all' },
+      filter: { query: '', tag: null, checked: 'all' },
     })
   })
 

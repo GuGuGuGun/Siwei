@@ -85,7 +85,9 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   const setNodeChecked = useDocumentStore((s) => s.setNodeChecked)
   const beginTextEditSession = useDocumentStore((s) => s.beginTextEditSession)
   const commitTextEditSession = useDocumentStore((s) => s.commitTextEditSession)
+  const isFocusedNode = useDocumentStore((s) => s.focusedNodeId === node.id)
 
+  const containerRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const [isComposing, setIsComposing] = React.useState(false)
   
@@ -110,6 +112,11 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
       setShowSlashMenu(false)
     }
   }, [isSelected])
+
+  React.useEffect(() => {
+    if (!isFocusedNode) return
+    containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [isFocusedNode])
 
   const executeSlashCommand = (key: string) => {
     // 1. Remove the '/' from text if present
@@ -278,9 +285,13 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
 
   return (
     <div
+      ref={containerRef}
+      data-node-id={node.id}
       className={`group relative flex items-center h-9 px-2 rounded-lg transition-all duration-200 border ${
         isSelected
           ? 'bg-[#FCFAF2] border-dashed border-amber-900/30 text-zinc-900 shadow-fabric'
+          : isFocusedNode
+            ? 'bg-amber-50 border-amber-300/70 text-zinc-900 shadow-fabric'
           : 'text-zinc-700 border-transparent hover:bg-[#FAF8F5]/80 hover:text-zinc-900'
       }`}
       onClick={(e) => {

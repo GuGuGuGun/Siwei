@@ -29,7 +29,8 @@ describe('documentStore', () => {
       isDirty: false,
       saveStatus: 'idle',
       currentFilePath: null,
-      filter: { tag: null, checked: 'all' },
+      filter: { query: '', tag: null, checked: 'all' },
+      focusedNodeId: null,
       canUndo: false,
       canRedo: false,
       undoStack: [],
@@ -299,6 +300,67 @@ describe('documentStore', () => {
     expect(useDocumentStore.getState().currentDoc?.root.children[1].note).toBe('多行备注\n第二行')
     useDocumentStore.getState().redo()
     expect(useDocumentStore.getState().currentDoc?.root.children[1].note).toBeUndefined()
+  })
+
+  it('renames removes and merges tags with history and dirty state', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await loadFixtureDoc({
+      ...createDocument(),
+      root: {
+        ...createDocument().root,
+        children: [
+          {
+            ...createDocument().root.children[0],
+            tags: ['工作', '重要'],
+            children: [
+              {
+                ...createDocument().root.children[0].children[0],
+                tags: ['工作'],
+              },
+            ],
+          },
+          {
+            ...createDocument().root.children[1],
+            tags: ['生活', '工作'],
+          },
+        ],
+      },
+    })
+
+    useDocumentStore.getState().setFilterTag('工作')
+    useDocumentStore.getState().renameTag('工作', '项目')
+    expect(useDocumentStore.getState().currentDoc?.root.children[0].tags).toEqual(['项目', '重要'])
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].tags).toEqual(['生活', '项目'])
+    expect(useDocumentStore.getState().filter.tag).toBe('项目')
+    expect(useDocumentStore.getState().isDirty).toBe(true)
+    expect(useDocumentStore.getState().canUndo).toBe(true)
+
+    useDocumentStore.getState().removeTagFromDocument('重要')
+    expect(confirmSpy).toHaveBeenLastCalledWith('确定从 1 个节点中删除标签「重要」吗？')
+    expect(useDocumentStore.getState().currentDoc?.root.children[0].tags).toEqual(['项目'])
+
+    useDocumentStore.getState().mergeTag('生活', '项目')
+    expect(confirmSpy).toHaveBeenLastCalledWith('确定将 1 个节点中的「生活」合并为「项目」吗？')
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].tags).toEqual(['项目'])
+
+    useDocumentStore.getState().undo()
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].tags).toEqual(['生活', '项目'])
+
+    confirmSpy.mockRestore()
+  })
+
+  it('focuses a node by expanding ancestors, selecting it, and clearing transient highlight', async () => {
+    await loadFixtureDoc()
+    useDocumentStore.setState({ collapsedNodeIds: new Set(['node-1']) })
+
+    useDocumentStore.getState().focusNode('node-1-1')
+
+    expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(false)
+    expect(useDocumentStore.getState().selectedNodeId).toBe('node-1-1')
+    expect(useDocumentStore.getState().focusedNodeId).toBe('node-1-1')
+
+    vi.advanceTimersByTime(1600)
+    expect(useDocumentStore.getState().focusedNodeId).toBeNull()
   })
 
   it('restores clean state when undoing property edits back to the save point', async () => {

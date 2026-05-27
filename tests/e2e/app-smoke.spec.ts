@@ -20,6 +20,7 @@ test('renders the main workspace and switches views', async ({ page }) => {
 
   await page.getByTitle('搜索 (Ctrl+F)').click()
   await expect(page.getByPlaceholder('输入关键词进行搜索...')).toBeVisible()
+  await expect(page.getByText('工作台')).toBeVisible()
 })
 
 test('supports undo and redo from toolbar buttons and keyboard shortcuts', async ({ page }) => {
@@ -72,4 +73,33 @@ test('reorders outline nodes by dragging the knit grip handle', async ({ page })
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z')
   const revertedNodeTexts = await outlineNodeTexts(page)
   expect(revertedNodeTexts.slice(0, 2)).toEqual(['开始记录你的想法', '第二条想法'])
+})
+
+test('filters by tag and manages tasks from the workspace panel', async ({ page }) => {
+  await page.goto('/')
+
+  const firstNodeInput = page.getByPlaceholder('输入编织内容...')
+  await expect(firstNodeInput).toHaveValue('开始记录你的想法')
+  await firstNodeInput.click()
+
+  await page.getByTitle('添加标签').click({ force: true })
+  await page.getByPlaceholder('标签').fill('项目')
+  await page.keyboard.press('Enter')
+
+  await page.getByTitle('转为待办').click({ force: true })
+
+  await page.getByTitle('搜索 (Ctrl+F)').click()
+  await page.getByRole('button', { name: '标签', exact: true }).click()
+  const tagSummary = page.getByRole('button', { name: '#项目 1 个节点' })
+  await expect(tagSummary).toBeVisible()
+
+  await tagSummary.click()
+  await expect(firstNodeInput).toBeVisible()
+
+  await page.getByRole('button', { name: '任务', exact: true }).click()
+  await expect(page.getByText('开始记录你的想法')).toBeVisible()
+
+  await page.getByTitle('标记为已完成').click()
+  await page.getByRole('button', { name: '已完成' }).click()
+  await expect(page.getByText('开始记录你的想法')).toBeVisible()
 })

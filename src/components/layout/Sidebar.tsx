@@ -16,6 +16,7 @@ export const Sidebar: React.FC = () => {
   const removeRecent = useRecentStore((s) => s.removeRecent)
 
   const [isCollapsed, setIsCollapsed] = React.useState(false)
+  const [invalidRecentPaths, setInvalidRecentPaths] = React.useState<Set<string>>(new Set())
 
   React.useEffect(() => {
     void loadRecents()
@@ -41,11 +42,25 @@ export const Sidebar: React.FC = () => {
 
     try {
       await loadDoc(path)
+      setInvalidRecentPaths((paths) => {
+        const next = new Set(paths)
+        next.delete(path)
+        return next
+      })
       toast.success('已加载最近文档')
     } catch (e) {
       toast.error(`加载失败，文件可能已被移动: ${String(e)}`)
+      setInvalidRecentPaths((paths) => new Set(paths).add(path))
+    }
+  }
+
+  const handleClearInvalidRecents = async () => {
+    const paths = [...invalidRecentPaths]
+    for (const path of paths) {
       await removeRecent(path)
     }
+    setInvalidRecentPaths(new Set())
+    toast.info('已清理失效记录')
   }
 
   const handleNewDoc = async () => {
@@ -132,19 +147,31 @@ export const Sidebar: React.FC = () => {
       {/* Recents list */}
       <div className="flex-1 overflow-y-auto px-2 py-1">
         {!isCollapsed && (
-          <div className="mb-2 px-3 text-[11px] font-semibold tracking-wide text-zinc-400">
-            最近打开
+          <div className="mb-2 flex items-center justify-between px-3">
+            <span className="text-[11px] font-semibold tracking-wide text-zinc-400">最近打开</span>
+            {invalidRecentPaths.size > 0 && (
+              <button
+                type="button"
+                onClick={handleClearInvalidRecents}
+                className="rounded px-1.5 py-0.5 text-[10px] font-medium text-rose-500 hover:bg-rose-50"
+              >
+                清理失效
+              </button>
+            )}
           </div>
         )}
 
         <div className="space-y-0.5">
           {recentDocs.map((doc) => {
             const isActive = doc.path === currentFilePath
+            const isInvalid = invalidRecentPaths.has(doc.path)
             return (
               <div
                 key={doc.path}
                 className={`group relative flex items-center justify-between rounded-md px-2.5 py-1.5 transition-colors ${
-                  isActive
+                  isInvalid
+                    ? 'bg-rose-50/70 text-rose-500'
+                    : isActive
                     ? 'bg-zinc-200/80 text-zinc-900'
                     : 'text-zinc-500 hover:bg-zinc-200/50 hover:text-zinc-800'
                 } ${isCollapsed ? 'justify-center cursor-pointer px-0' : ''}`}
@@ -161,6 +188,9 @@ export const Sidebar: React.FC = () => {
                       <span className={`truncate text-[13px] leading-tight ${isActive ? 'font-medium' : 'font-normal'}`}>
                         {doc.title || '未命名'}
                       </span>
+                      {isInvalid && (
+                        <span className="text-[10px] leading-tight text-rose-400">路径失效，点击删除按钮移除</span>
+                      )}
                     </div>
                   </button>
                 ) : (

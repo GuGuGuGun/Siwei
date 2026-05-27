@@ -105,9 +105,7 @@ impl OutlineNode {
             let mut seen_tags = HashSet::new();
             for tag in tags {
                 if tag.trim().is_empty() {
-                    return Err(AppError::Validation(format!(
-                        "{location} 节点标签不能为空"
-                    )));
+                    return Err(AppError::Validation(format!("{location} 节点标签不能为空")));
                 }
 
                 if tag.contains('\n') || tag.contains('\r') {
@@ -232,10 +230,18 @@ mod tests {
 
         let mut doc = sample_doc();
         doc.root.children[0].tags = Some(vec![" ".to_string()]);
-        assert!(doc.validate().unwrap_err().to_string().contains("标签不能为空"));
+        assert!(doc
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("标签不能为空"));
 
         let mut doc = sample_doc();
         doc.root.children[0].tags = Some(vec!["bad\ntag".to_string()]);
-        assert!(doc.validate().unwrap_err().to_string().contains("标签不能包含换行"));
+        assert!(doc
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("标签不能包含换行"));
     }
 }

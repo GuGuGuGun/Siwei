@@ -1,7 +1,7 @@
 import React from 'react'
 import { useDocumentStore } from '../document/documentStore'
 import { OutlineNodeItem } from './OutlineNodeItem'
-import { getVisibleNodes } from '../../utils/tree'
+import { filterVisibleTree } from '../filter/filterUtils'
 import { FileText, Plus } from 'lucide-react'
 
 export const OutlineEditor: React.FC = () => {
@@ -18,7 +18,7 @@ export const OutlineEditor: React.FC = () => {
 
   const visibleNodes = React.useMemo(() => {
     if (!currentDoc) return []
-    return getVisibleNodes(currentDoc.root, collapsedNodeIds, filter)
+    return filterVisibleTree(currentDoc.root, collapsedNodeIds, filter).nodes
   }, [currentDoc, collapsedNodeIds, filter])
 
   const handleNavigate = (nodeId: string, direction: 'up' | 'down') => {

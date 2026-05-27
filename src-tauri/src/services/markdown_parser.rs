@@ -11,8 +11,21 @@ pub fn import_markdown(content: &str) -> Result<OutlineDocument, AppError> {
     let title = extract_title(content).unwrap_or_else(|| "未命名文档".to_string());
     let mut entries = Vec::new();
     let mut last_list_entry_index: Option<usize> = None;
+    let mut fenced_code_marker: Option<String> = None;
 
     for (line_index, line) in content.lines().enumerate() {
+        if let Some(marker) = fenced_code_marker.as_ref() {
+            if is_fenced_code_boundary(line, marker) {
+                fenced_code_marker = None;
+            }
+            continue;
+        }
+
+        if let Some(marker) = fenced_code_open_marker(line) {
+            fenced_code_marker = Some(marker);
+            continue;
+        }
+
         if let Some(entry) = parse_list_line(line, line_index + 1)? {
             entries.push(entry);
             last_list_entry_index = Some(entries.len() - 1);
@@ -88,7 +101,7 @@ struct NoteLine {
 }
 
 fn parse_list_line(line: &str, line_number: usize) -> Result<Option<ListEntry>, AppError> {
-    let Some(marker_index) = line.find("- ") else {
+    let Some((marker_index, marker_length)) = find_list_marker(line) else {
         return Ok(None);
     };
 
@@ -100,7 +113,8 @@ fn parse_list_line(line: &str, line_number: usize) -> Result<Option<ListEntry>, 
     }
 
     let depth = indentation_depth(&line[..marker_index], line_number)?;
-    let (checked, text_without_marker) = parse_task_marker(line[marker_index + 2..].trim());
+    let (checked, text_without_marker) =
+        parse_task_marker(line[marker_index + marker_length..].trim());
     let (text, tags) = parse_trailing_tags(text_without_marker);
 
     Ok(Some(ListEntry {
@@ -111,6 +125,50 @@ fn parse_list_line(line: &str, line_number: usize) -> Result<Option<ListEntry>, 
         tags,
         note: None,
     }))
+}
+
+fn find_list_marker(line: &str) -> Option<(usize, usize)> {
+    if let Some(marker_index) = line.find("- ") {
+        return Some((marker_index, 2));
+    }
+
+    let trimmed_start = line.trim_start_matches([' ', '\t']);
+    let marker_index = line.len() - trimmed_start.len();
+    let mut digit_count = 0;
+
+    for character in trimmed_start.chars() {
+        if character.is_ascii_digit() {
+            digit_count += 1;
+            continue;
+        }
+        break;
+    }
+
+    if digit_count == 0 {
+        return None;
+    }
+
+    let rest = &trimmed_start[digit_count..];
+    if rest.starts_with(". ") {
+        Some((marker_index, digit_count + 2))
+    } else {
+        None
+    }
+}
+
+fn fenced_code_open_marker(line: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("```") {
+        Some("```".to_string())
+    } else if trimmed.starts_with("~~~") {
+        Some("~~~".to_string())
+    } else {
+        None
+    }
+}
+
+fn is_fenced_code_boundary(line: &str, marker: &str) -> bool {
+    line.trim_start().starts_with(marker)
 }
 
 fn parse_note_line(line: &str, line_number: usize) -> Result<Option<NoteLine>, AppError> {
@@ -139,7 +197,10 @@ fn parse_task_marker(text: &str) -> (Option<bool>, &str) {
         return (Some(false), rest);
     }
 
-    if let Some(rest) = text.strip_prefix("[x] ").or_else(|| text.strip_prefix("[X] ")) {
+    if let Some(rest) = text
+        .strip_prefix("[x] ")
+        .or_else(|| text.strip_prefix("[X] "))
+    {
         return (Some(true), rest);
     }
 
@@ -311,11 +372,43 @@ mod tests {
         let task = &doc.root.children[0];
         assert_eq!(task.text, "发布计划");
         assert_eq!(task.checked, Some(false));
-        assert_eq!(task.tags.as_deref(), Some(&["工作".to_string(), "重要".to_string()][..]));
+        assert_eq!(
+            task.tags.as_deref(),
+            Some(&["工作".to_string(), "重要".to_string()][..])
+        );
         assert_eq!(task.note.as_deref(), Some("备注第一行\n备注第二行"));
         assert_eq!(task.children[0].checked, Some(true));
-        assert_eq!(task.children[0].tags.as_deref(), Some(&["done".to_string()][..]));
+        assert_eq!(
+            task.children[0].tags.as_deref(),
+            Some(&["done".to_string()][..])
+        );
         assert_eq!(doc.root.children[1].checked, None);
+    }
+
+    #[test]
+    fn ignores_list_tags_and_notes_inside_fenced_code_blocks() {
+        let doc = import_markdown(
+            "# Roadmap\n\n```md\n- not a node #tag\n  > not a note\n```\n- Real #tag\n~~~\n1. also ignored\n~~~",
+        )
+        .unwrap();
+
+        assert_eq!(doc.root.children.len(), 1);
+        assert_eq!(doc.root.children[0].text, "Real");
+        assert_eq!(
+            doc.root.children[0].tags.as_deref(),
+            Some(&["tag".to_string()][..])
+        );
+        assert!(doc.root.children[0].note.is_none());
+    }
+
+    #[test]
+    fn imports_ordered_lists_as_regular_nodes() {
+        let doc = import_markdown("1. First\n  1. Child\n2. Second").unwrap();
+
+        assert_eq!(doc.root.children.len(), 2);
+        assert_eq!(doc.root.children[0].text, "First");
+        assert_eq!(doc.root.children[0].children[0].text, "Child");
+        assert_eq!(doc.root.children[1].text, "Second");
     }
 
     #[test]
@@ -334,6 +427,9 @@ mod tests {
         assert_eq!(doc.root.children[0].text, "讨论 #工作 计划");
         assert!(doc.root.children[0].tags.is_none());
         assert_eq!(doc.root.children[1].text, "修复");
-        assert_eq!(doc.root.children[1].tags.as_deref(), Some(&["bug".to_string()][..]));
+        assert_eq!(
+            doc.root.children[1].tags.as_deref(),
+            Some(&["bug".to_string()][..])
+        );
     }
 }

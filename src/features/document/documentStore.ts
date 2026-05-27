@@ -3,6 +3,14 @@ import { OutlineDocument, OutlineNode } from '../../types/document'
 import * as api from '../../services/siweiApi'
 import { generateId } from '../../utils/id'
 import {
+  CheckedFilter,
+  OutlineFilterState,
+  countTagUsage,
+  findNodePath,
+  normalizeTag,
+  normalizeTagList,
+} from '../filter/filterUtils'
+import {
   findPath,
   updateNodeAtPath,
   insertSiblingAtPath,
@@ -17,12 +25,6 @@ import {
 
 export type ViewMode = 'outline' | 'mindmap' | 'split'
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
-export type CheckedFilter = 'all' | 'checked' | 'unchecked' | 'task'
-
-export interface OutlineFilterState {
-  tag: string | null
-  checked: CheckedFilter
-}
 
 interface HistorySnapshot {
   currentDoc: OutlineDocument
@@ -46,6 +48,7 @@ interface DocumentState {
   saveStatus: SaveStatus
   currentFilePath: string | null
   filter: OutlineFilterState
+  focusedNodeId: string | null
   canUndo: boolean
   canRedo: boolean
   undoStack: HistorySnapshot[]
@@ -80,9 +83,14 @@ interface DocumentState {
   addNodeTag: (nodeId: string, tag: string) => void
   removeNodeTag: (nodeId: string, tag: string) => void
   setNodeTags: (nodeId: string, tags: string[]) => void
+  renameTag: (from: string, to: string) => void
+  removeTagFromDocument: (tag: string) => void
+  mergeTag: (from: string, to: string) => void
+  setFilterQuery: (query: string) => void
   setFilterTag: (tag: string | null) => void
   setFilterChecked: (checked: CheckedFilter) => void
   clearFilters: () => void
+  focusNode: (nodeId: string) => void
 
   // History actions
   undo: () => void
@@ -205,20 +213,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     return trimmed.length > 0 ? trimmed : undefined
   }
 
-  const normalizeTags = (tags: string[]): string[] | undefined => {
-    const seen = new Set<string>()
-    const normalized = tags
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length > 0 && !tag.includes('\n') && !tag.includes('\r'))
-      .filter((tag) => {
-        if (seen.has(tag)) return false
-        seen.add(tag)
-        return true
-      })
-
-    return normalized.length > 0 ? normalized : undefined
-  }
-
   const areTagsEqual = (left?: string[], right?: string[]): boolean => {
     return JSON.stringify(left ?? undefined) === JSON.stringify(right ?? undefined)
   }
@@ -269,7 +263,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     isDirty: false,
     saveStatus: 'idle',
     currentFilePath: null,
-    filter: { tag: null, checked: 'all' },
+    filter: { query: '', tag: null, checked: 'all' },
+    focusedNodeId: null,
     canUndo: false,
     canRedo: false,
     undoStack: [],
@@ -302,6 +297,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           isDirty: false,
           collapsedNodeIds: collapsedIds,
           selectedNodeId: firstNodeId,
+          focusedNodeId: null,
           saveStatus: 'idle',
           ...clearHistoryState(doc, firstNodeId, collapsedIds, { isDirty: false }),
         })
@@ -324,6 +320,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           isDirty: false,
           collapsedNodeIds: collapsedIds,
           selectedNodeId: firstNodeId,
+          focusedNodeId: null,
           saveStatus: 'idle',
           ...clearHistoryState(doc, firstNodeId, collapsedIds, { isDirty: false }),
         })
@@ -460,6 +457,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           isDirty: true,
           collapsedNodeIds: collapsedIds,
           selectedNodeId: doc.root.children.length > 0 ? doc.root.children[0].id : doc.root.id,
+          focusedNodeId: null,
           saveStatus: 'idle',
           ...clearHistoryState(doc, doc.root.children.length > 0 ? doc.root.children[0].id : doc.root.id, collapsedIds, {
             isDirty: true,
@@ -818,7 +816,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
 
     addNodeTag: (nodeId, tag) => {
       mutateNodeProperty(nodeId, (node, now) => {
-        const tags = normalizeTags([...(node.tags ?? []), tag])
+        const tags = normalizeTagList([...(node.tags ?? []), tag])
         if (areTagsEqual(node.tags, tags)) return node
         return {
           ...node,
@@ -830,7 +828,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
 
     removeNodeTag: (nodeId, tag) => {
       mutateNodeProperty(nodeId, (node, now) => {
-        const tags = normalizeTags((node.tags ?? []).filter((currentTag) => currentTag !== tag))
+        const tags = normalizeTagList((node.tags ?? []).filter((currentTag) => currentTag !== tag))
         if (areTagsEqual(node.tags, tags)) return node
         return {
           ...node,
@@ -841,7 +839,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     },
 
     setNodeTags: (nodeId, tags) => {
-      const normalizedTags = normalizeTags(tags)
+      const normalizedTags = normalizeTagList(tags)
       mutateNodeProperty(nodeId, (node, now) => {
         if (areTagsEqual(node.tags, normalizedTags)) return node
         return {
@@ -852,11 +850,120 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       })
     },
 
+    renameTag: (from, to) => {
+      const fromTag = normalizeTag(from)
+      const toTag = normalizeTag(to)
+      if (!fromTag || !toTag || fromTag === toTag) return
+
+      const before = beginMutation()
+      const { currentDoc } = get()
+      if (!currentDoc || !before) return
+
+      let didChange = false
+      const now = Date.now()
+      const renameInNode = (node: OutlineNode): OutlineNode => {
+        const tags = normalizeTagList((node.tags ?? []).map((tag) => (tag === fromTag ? toTag : tag)))
+        const children = node.children.map(renameInNode)
+        const tagsChanged = !areTagsEqual(node.tags, tags)
+        if (tagsChanged) didChange = true
+
+        return {
+          ...node,
+          tags,
+          updatedAt: tagsChanged ? now : node.updatedAt,
+          children,
+        }
+      }
+
+      const updatedDoc = {
+        ...currentDoc,
+        root: renameInNode(currentDoc.root),
+        updatedAt: now,
+      }
+
+      if (!didChange) return
+
+      set((state) => ({
+        currentDoc: updatedDoc,
+        filter: {
+          ...state.filter,
+          tag: state.filter.tag === fromTag ? toTag : state.filter.tag,
+        },
+        isDirty: true,
+      }))
+      setHistoryAfterMutation(before)
+    },
+
+    removeTagFromDocument: (tag) => {
+      const targetTag = normalizeTag(tag)
+      const { currentDoc } = get()
+      if (!currentDoc || !targetTag) return
+
+      const affectedCount = countTagUsage(currentDoc.root, targetTag)
+      if (affectedCount === 0) return
+      if (!window.confirm(`确定从 ${affectedCount} 个节点中删除标签「${targetTag}」吗？`)) return
+
+      const before = beginMutation()
+      if (!before) return
+
+      const now = Date.now()
+      const removeFromNode = (node: OutlineNode): OutlineNode => {
+        const tags = normalizeTagList((node.tags ?? []).filter((currentTag) => currentTag !== targetTag))
+        const children = node.children.map(removeFromNode)
+        const tagsChanged = !areTagsEqual(node.tags, tags)
+
+        return {
+          ...node,
+          tags,
+          updatedAt: tagsChanged ? now : node.updatedAt,
+          children,
+        }
+      }
+
+      const updatedDoc = {
+        ...currentDoc,
+        root: removeFromNode(currentDoc.root),
+        updatedAt: now,
+      }
+
+      set((state) => ({
+        currentDoc: updatedDoc,
+        filter: {
+          ...state.filter,
+          tag: state.filter.tag === targetTag ? null : state.filter.tag,
+        },
+        isDirty: true,
+      }))
+      setHistoryAfterMutation(before)
+    },
+
+    mergeTag: (from, to) => {
+      const fromTag = normalizeTag(from)
+      const toTag = normalizeTag(to)
+      const { currentDoc } = get()
+      if (!currentDoc || !fromTag || !toTag || fromTag === toTag) return
+
+      const affectedCount = countTagUsage(currentDoc.root, fromTag)
+      if (affectedCount === 0) return
+      if (!window.confirm(`确定将 ${affectedCount} 个节点中的「${fromTag}」合并为「${toTag}」吗？`)) return
+
+      get().renameTag(fromTag, toTag)
+    },
+
+    setFilterQuery: (query) => {
+      set((state) => ({
+        filter: {
+          ...state.filter,
+          query,
+        },
+      }))
+    },
+
     setFilterTag: (tag) => {
       set((state) => ({
         filter: {
           ...state.filter,
-          tag: normalizeTags(tag ? [tag] : [])?.[0] ?? null,
+          tag: tag ? normalizeTag(tag) : null,
         },
       }))
     },
@@ -870,7 +977,30 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       }))
     },
 
-    clearFilters: () => set({ filter: { tag: null, checked: 'all' } }),
+    clearFilters: () => set({ filter: { query: '', tag: null, checked: 'all' } }),
+
+    focusNode: (nodeId) => {
+      const { currentDoc, collapsedNodeIds } = get()
+      if (!currentDoc) return
+
+      const nodePath = findNodePath(currentDoc.root, nodeId)
+      if (!nodePath) return
+
+      const newCollapsed = new Set(collapsedNodeIds)
+      nodePath.slice(1, -1).forEach((node) => newCollapsed.delete(node.id))
+
+      set({
+        collapsedNodeIds: newCollapsed,
+        selectedNodeId: nodeId,
+        focusedNodeId: nodeId,
+      })
+
+      window.setTimeout(() => {
+        if (get().focusedNodeId === nodeId) {
+          set({ focusedNodeId: null })
+        }
+      }, 1600)
+    },
 
     undo: () => {
       finalizeActiveTextEditSession()

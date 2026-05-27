@@ -1,6 +1,4 @@
-use crate::models::{
-    OutlineDocument, OutlineNode, SearchMatch, SearchMatchSource, SearchResult,
-};
+use crate::models::{OutlineDocument, OutlineNode, SearchMatch, SearchMatchSource, SearchResult};
 
 pub fn search_document(doc: &OutlineDocument, query: &str) -> Vec<SearchResult> {
     let normalized_query = query.trim().to_lowercase();
