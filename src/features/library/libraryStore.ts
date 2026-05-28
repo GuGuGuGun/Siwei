@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 
 import * as api from '../../services/siweiApi'
+import { useWorkspaceStore } from '../../app/workspaceStore'
 import type {
   LibraryDocumentQuery,
   LibraryDocumentItem,
@@ -311,6 +312,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     if (nodeId) {
       useDocumentStore.getState().focusNode(nodeId)
     }
+    useWorkspaceStore.getState().setActiveView('editor')
     set({ activeView: null })
   },
 

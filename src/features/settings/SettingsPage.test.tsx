@@ -1,0 +1,75 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { useLibraryStore } from '../library/libraryStore'
+import { useRecentStore } from '../document/recentStore'
+import { useSettingsStore } from './settingsStore'
+import { SettingsPage } from './SettingsPage'
+
+describe('SettingsPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useSettingsStore.setState({
+      settings: {
+        autoSaveEnabled: true,
+        autoSaveIntervalMs: 1500,
+        defaultViewMode: 'outline',
+        sidebarCollapsed: false,
+      },
+      isLoaded: true,
+      isSaving: false,
+      error: null,
+    })
+    useRecentStore.setState({
+      recentDocs: [
+        { path: 'a.siwei.json', title: 'A', lastOpenedAt: 1 },
+        { path: 'b.siwei.json', title: 'B', lastOpenedAt: 2 },
+      ],
+    })
+    useLibraryStore.setState({
+      isLoading: false,
+      error: null,
+    })
+  })
+
+  it('updates auto-save and default view settings from controls', async () => {
+    const updateSettings = vi.spyOn(useSettingsStore.getState(), 'updateSettings')
+      .mockImplementation(async (patch) => {
+        useSettingsStore.setState((state) => ({ settings: { ...state.settings, ...patch } }))
+      })
+
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByLabelText('已开启'))
+    fireEvent.click(screen.getByRole('button', { name: '导图' }))
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalledWith({ autoSaveEnabled: false })
+      expect(updateSettings).toHaveBeenCalledWith({ defaultViewMode: 'mindmap' })
+    })
+
+    updateSettings.mockRestore()
+  })
+
+  it('runs data maintenance actions through existing stores', async () => {
+    const removeRecent = vi.spyOn(useRecentStore.getState(), 'removeRecent').mockResolvedValue(undefined)
+    const loadRecents = vi.spyOn(useRecentStore.getState(), 'loadRecents').mockResolvedValue(undefined)
+    const rebuildIndex = vi.spyOn(useLibraryStore.getState(), 'rebuildIndex').mockResolvedValue(undefined)
+
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: /清空最近记录/ }))
+    fireEvent.click(screen.getByRole('button', { name: /重建索引/ }))
+
+    await waitFor(() => {
+      expect(removeRecent).toHaveBeenCalledWith('a.siwei.json')
+      expect(removeRecent).toHaveBeenCalledWith('b.siwei.json')
+      expect(loadRecents).toHaveBeenCalled()
+      expect(rebuildIndex).toHaveBeenCalled()
+    })
+
+    removeRecent.mockRestore()
+    loadRecents.mockRestore()
+    rebuildIndex.mockRestore()
+  })
+})

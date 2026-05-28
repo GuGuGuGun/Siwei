@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 
 import type { OutlineDocument, RecentDocItem, SearchResult } from '../types/document'
+import type { AppSettings } from '../types/settings'
 import type {
   LibraryDocumentItem,
   LibraryDocumentQuery,
@@ -76,6 +77,14 @@ export function searchDocument(
   query: string,
 ): Promise<SearchResult[]> {
   return callCommand('search_document', { doc, query })
+}
+
+export function getSettings(): Promise<AppSettings> {
+  return callCommand('get_settings')
+}
+
+export function updateSettings(settings: AppSettings): Promise<AppSettings> {
+  return callCommand('update_settings', { settings })
 }
 
 export function getLibraryDocs(): Promise<LibraryDocumentItem[]> {

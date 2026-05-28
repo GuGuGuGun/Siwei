@@ -1,8 +1,10 @@
 import React from 'react'
-import { Plus, FolderOpen, FileText, Trash2, ChevronLeft, ChevronRight, Database } from 'lucide-react'
+import { Plus, FolderOpen, FileText, Trash2, ChevronLeft, ChevronRight, Database, Settings } from 'lucide-react'
+import { useWorkspaceStore } from '../../app/workspaceStore'
 import { useDocumentStore } from '../../features/document/documentStore'
 import { useRecentStore } from '../../features/document/recentStore'
 import { useLibraryStore } from '../../features/library/libraryStore'
+import { useSettingsStore } from '../../features/settings/settingsStore'
 import { openFileDialog } from '../../services/siweiApi'
 import { toast } from '../common/Toast'
 
@@ -11,14 +13,18 @@ export const Sidebar: React.FC = () => {
   const loadDoc = useDocumentStore((s) => s.loadDoc)
   const canDiscardCurrentDoc = useDocumentStore((s) => s.canDiscardCurrentDoc)
   const currentFilePath = useDocumentStore((s) => s.currentFilePath)
-  const activeLibraryView = useLibraryStore((s) => s.activeView)
+  const setViewMode = useDocumentStore((s) => s.setViewMode)
   const setActiveLibraryView = useLibraryStore((s) => s.setActiveView)
+  const activeWorkspaceView = useWorkspaceStore((s) => s.activeView)
+  const setWorkspaceView = useWorkspaceStore((s) => s.setActiveView)
+  const settings = useSettingsStore((s) => s.settings)
+  const isCollapsed = settings.sidebarCollapsed
+  const updateSettings = useSettingsStore((s) => s.updateSettings)
   
   const recentDocs = useRecentStore((s) => s.recentDocs)
   const loadRecents = useRecentStore((s) => s.loadRecents)
   const removeRecent = useRecentStore((s) => s.removeRecent)
 
-  const [isCollapsed, setIsCollapsed] = React.useState(false)
   const [invalidRecentPaths, setInvalidRecentPaths] = React.useState<Set<string>>(new Set())
 
   React.useEffect(() => {
@@ -32,6 +38,7 @@ export const Sidebar: React.FC = () => {
       const path = await openFileDialog(['siwei.json', 'json'])
       if (path) {
         await loadDoc(path)
+        setWorkspaceView('editor')
         toast.success('文档已打开')
       }
     } catch (e) {
@@ -45,6 +52,7 @@ export const Sidebar: React.FC = () => {
 
     try {
       await loadDoc(path)
+      setWorkspaceView('editor')
       setInvalidRecentPaths((paths) => {
         const next = new Set(paths)
         next.delete(path)
@@ -70,7 +78,9 @@ export const Sidebar: React.FC = () => {
     if (!canDiscardCurrentDoc()) return
 
     try {
+      setViewMode(settings.defaultViewMode)
       await newDoc()
+      setWorkspaceView('editor')
       toast.success('已新建文档')
     } catch (e) {
       toast.error(`新建失败: ${String(e)}`)
@@ -116,7 +126,11 @@ export const Sidebar: React.FC = () => {
           </div>
         )}
         <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
+          onClick={() => {
+            void updateSettings({ sidebarCollapsed: !isCollapsed }).catch((error) => {
+              toast.error(`侧栏设置保存失败: ${String(error)}`)
+            })
+          }}
           className="absolute -right-3 top-4 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-400 hover:text-zinc-800 transition focus:outline-none shadow-sm"
         >
           {isCollapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
@@ -146,9 +160,12 @@ export const Sidebar: React.FC = () => {
           {!isCollapsed && <span>打开文档</span>}
         </button>
         <button
-          onClick={() => setActiveLibraryView(activeLibraryView ? null : 'docs')}
+          onClick={() => {
+            setActiveLibraryView('docs')
+            setWorkspaceView('library')
+          }}
           className={`flex h-8 items-center justify-center gap-2 rounded-md border font-medium text-xs tracking-wide transition ${
-            activeLibraryView
+            activeWorkspaceView === 'library'
               ? 'border-zinc-300 bg-white text-zinc-900 shadow-sm'
               : 'border-zinc-200/60 bg-transparent text-zinc-600 hover:bg-zinc-200/50 hover:text-zinc-900'
           } ${isCollapsed ? 'px-0 w-8 mx-auto border-none hover:bg-zinc-200/80' : 'px-4 w-full'}`}
@@ -156,6 +173,18 @@ export const Sidebar: React.FC = () => {
         >
           <Database size={14} className="text-zinc-500" />
           {!isCollapsed && <span>文档库</span>}
+        </button>
+        <button
+          onClick={() => setWorkspaceView('settings')}
+          className={`flex h-8 items-center justify-center gap-2 rounded-md border font-medium text-xs tracking-wide transition ${
+            activeWorkspaceView === 'settings'
+              ? 'border-zinc-300 bg-white text-zinc-900 shadow-sm'
+              : 'border-zinc-200/60 bg-transparent text-zinc-600 hover:bg-zinc-200/50 hover:text-zinc-900'
+          } ${isCollapsed ? 'px-0 w-8 mx-auto border-none hover:bg-zinc-200/80' : 'px-4 w-full'}`}
+          title="设置"
+        >
+          <Settings size={14} className="text-zinc-500" />
+          {!isCollapsed && <span>设置</span>}
         </button>
       </div>
 

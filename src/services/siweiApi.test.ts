@@ -134,4 +134,20 @@ describe('siweiApi', () => {
     expect(invokeMock).toHaveBeenNthCalledWith(7, 'cancel_library_refresh', { jobId: 'job-1' })
     expect(invokeMock).toHaveBeenNthCalledWith(8, 'remove_missing_library_docs', undefined)
   })
+
+  it('wraps settings commands with stable camelCase payload fields', async () => {
+    const settings = {
+      autoSaveEnabled: false,
+      autoSaveIntervalMs: 2500,
+      defaultViewMode: 'split' as const,
+      sidebarCollapsed: true,
+    }
+    invokeMock.mockResolvedValue(settings)
+
+    await api.getSettings()
+    await api.updateSettings(settings)
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'get_settings', undefined)
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'update_settings', { settings })
+  })
 })

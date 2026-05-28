@@ -5,10 +5,12 @@ import { OutlineEditor } from '../features/outline/OutlineEditor'
 import { MindMapView } from '../features/mindmap/MindMapView'
 import { SearchPanel } from '../features/search/SearchPanel'
 import { LibraryWorkspace } from '../features/library/LibraryWorkspace'
+import { SettingsPage } from '../features/settings/SettingsPage'
 import { Dialog } from '../components/common/Dialog'
 import { ToastContainer, toast } from '../components/common/Toast'
 import { useDocumentStore } from '../features/document/documentStore'
-import { useLibraryStore } from '../features/library/libraryStore'
+import { useSettingsStore } from '../features/settings/settingsStore'
+import { useWorkspaceStore } from './workspaceStore'
 import { openFileDialog, saveFileDialog } from '../services/siweiApi'
 import { Search, Save, FileOutput, FileInput, Grid, List, Columns, Sparkles, Undo2, Redo2 } from 'lucide-react'
 
@@ -19,7 +21,9 @@ export const App: React.FC = () => {
   const currentFilePath = useDocumentStore((s) => s.currentFilePath)
   const canUndo = useDocumentStore((s) => s.canUndo)
   const canRedo = useDocumentStore((s) => s.canRedo)
-  const activeLibraryView = useLibraryStore((s) => s.activeView)
+  const settings = useSettingsStore((s) => s.settings)
+  const loadSettings = useSettingsStore((s) => s.loadSettings)
+  const activeWorkspaceView = useWorkspaceStore((s) => s.activeView)
 
   const newDoc = useDocumentStore((s) => s.newDoc)
   const saveDoc = useDocumentStore((s) => s.saveDoc)
@@ -34,21 +38,30 @@ export const App: React.FC = () => {
   const [isImportOpen, setIsImportOpen] = React.useState(false)
   const [isExportOpen, setIsExportOpen] = React.useState(false)
 
-  // Initialize doc
+  // 初始化设置后再创建文档，确保默认视图在首屏生效。
   React.useEffect(() => {
-    void newDoc()
-  }, [])
+    void loadSettings()
+      .catch((error) => {
+        toast.error(`加载设置失败: ${String(error)}`)
+      })
+      .finally(() => {
+        const defaultViewMode = useSettingsStore.getState().settings.defaultViewMode
+        setViewMode(defaultViewMode)
+        void newDoc()
+      })
+  }, [loadSettings, newDoc, setViewMode])
 
   // Auto-save debounce (if has active path)
   React.useEffect(() => {
+    if (!settings.autoSaveEnabled) return
     if (!currentDoc || !isDirty || !currentFilePath) return
 
     const timer = setTimeout(() => {
       void saveDoc()
-    }, 1500)
+    }, settings.autoSaveIntervalMs)
 
     return () => clearTimeout(timer)
-  }, [currentDoc, isDirty, currentFilePath])
+  }, [currentDoc, isDirty, currentFilePath, saveDoc, settings.autoSaveEnabled, settings.autoSaveIntervalMs])
 
   // Global Shortcuts
   React.useEffect(() => {
@@ -74,6 +87,7 @@ export const App: React.FC = () => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
         e.preventDefault()
         if (canDiscardCurrentDoc()) {
+          setViewMode(useSettingsStore.getState().settings.defaultViewMode)
           void newDoc().then(() => toast.success('已新建文档'))
         }
       }
@@ -93,7 +107,7 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', handleGlobalKeyDown)
     return () => window.removeEventListener('keydown', handleGlobalKeyDown)
-  }, [currentDoc, currentFilePath, canDiscardCurrentDoc, undo, redo])
+  }, [currentDoc, currentFilePath, canDiscardCurrentDoc, undo, redo, newDoc, saveDoc, setViewMode])
 
   const handleImport = async (format: 'json' | 'markdown') => {
     if (!canDiscardCurrentDoc()) return
@@ -242,8 +256,10 @@ export const App: React.FC = () => {
 
         {/* Content Workspace Area */}
         <main className="flex-1 overflow-hidden relative bg-linen">
-          {activeLibraryView ? (
+          {activeWorkspaceView === 'library' ? (
             <LibraryWorkspace />
+          ) : activeWorkspaceView === 'settings' ? (
+            <SettingsPage />
           ) : (
             <>
               {viewMode === 'outline' && <OutlineEditor />}

@@ -9,8 +9,12 @@ async function outlineNodeTexts(page: Page) {
   )
 }
 
+async function openApp(page: Page) {
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
+}
+
 test('renders the main workspace and switches views', async ({ page }) => {
-  await page.goto('/')
+  await openApp(page)
 
   await expect(page.getByText('Siwei Workspace')).toBeVisible()
   await expect(page.getByRole('button', { name: '大纲' })).toBeVisible()
@@ -24,7 +28,7 @@ test('renders the main workspace and switches views', async ({ page }) => {
 })
 
 test('supports undo and redo from toolbar buttons and keyboard shortcuts', async ({ page }) => {
-  await page.goto('/')
+  await openApp(page)
 
   const undoButton = page.getByTitle('撤销 (Ctrl+Z)')
   const redoButton = page.getByTitle('重做 (Ctrl+Shift+Z)')
@@ -54,7 +58,7 @@ test('supports undo and redo from toolbar buttons and keyboard shortcuts', async
 })
 
 test('reorders outline nodes by dragging the knit grip handle', async ({ page }) => {
-  await page.goto('/')
+  await openApp(page)
 
   const firstNodeInput = page.getByPlaceholder('输入编织内容...')
   await expect(firstNodeInput).toHaveValue('开始记录你的想法')
@@ -76,7 +80,7 @@ test('reorders outline nodes by dragging the knit grip handle', async ({ page })
 })
 
 test('edits nodes from the mind map and syncs the split outline', async ({ page }) => {
-  await page.goto('/')
+  await openApp(page)
 
   const firstNodeInput = page.getByPlaceholder('输入编织内容...')
   await expect(firstNodeInput).toHaveValue('开始记录你的想法')
@@ -113,7 +117,7 @@ test('edits nodes from the mind map and syncs the split outline', async ({ page 
 })
 
 test('filters by tag and manages tasks from the workspace panel', async ({ page }) => {
-  await page.goto('/')
+  await openApp(page)
 
   const firstNodeInput = page.getByPlaceholder('输入编织内容...')
   await expect(firstNodeInput).toHaveValue('开始记录你的想法')
@@ -139,4 +143,20 @@ test('filters by tag and manages tasks from the workspace panel', async ({ page 
   await page.getByTitle('标记为已完成').click()
   await page.getByRole('button', { name: '已完成' }).click()
   await expect(page.getByText('开始记录你的想法')).toBeVisible()
+})
+
+test('opens settings workspace and updates effective controls', async ({ page }) => {
+  await openApp(page)
+
+  await page.getByRole('button', { name: '设置' }).click()
+  await expect(page.getByRole('heading', { name: '设置' })).toBeVisible()
+
+  await page.getByRole('button', { name: '导图', exact: true }).click()
+  await expect(page.getByRole('button', { name: '导图', exact: true })).toHaveClass(/bg-zinc-900/)
+
+  await page.getByRole('button', { name: '收起' }).click()
+  await expect(page.getByTitle('设置')).toBeVisible()
+
+  await page.getByTitle('设置').click()
+  await expect(page.getByRole('heading', { name: '设置' })).toBeVisible()
 })

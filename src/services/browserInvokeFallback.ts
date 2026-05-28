@@ -1,4 +1,6 @@
 import type { OutlineDocument, RecentDocItem, SearchResult } from '../types/document'
+import type { AppSettings } from '../types/settings'
+import { DEFAULT_SETTINGS } from '../types/settings'
 import type {
   LibraryDocumentItem,
   LibraryPage,
@@ -43,6 +45,7 @@ let currentDoc = createDemoDocument()
 let recentDocs: RecentDocItem[] = []
 let libraryDocs: LibraryDocumentItem[] = []
 let refreshStatus: LibraryRefreshStatus | null = null
+let settings: AppSettings = DEFAULT_SETTINGS
 
 function searchNode(
   node: OutlineDocument['root'],
@@ -146,6 +149,13 @@ export async function browserInvokeFallback<T>(command: string, args?: CommandAr
       searchNode(doc.root, query, [], results)
       return results as T
     }
+    case 'get_settings':
+      return settings as T
+    case 'update_settings':
+      if (args?.settings) {
+        settings = args.settings as AppSettings
+      }
+      return settings as T
     case 'get_library_docs':
     case 'refresh_library':
     case 'rebuild_library_index':

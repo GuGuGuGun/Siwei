@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as api from '../../services/siweiApi'
+import { useWorkspaceStore } from '../../app/workspaceStore'
 import { createDocument } from '../../test/fixtures'
 import { useDocumentStore } from '../document/documentStore'
 import { useLibraryStore } from './libraryStore'
@@ -84,6 +85,7 @@ describe('libraryStore', () => {
       isLoading: false,
       error: null,
     })
+    useWorkspaceStore.setState({ activeView: 'library' })
     useDocumentStore.setState({
       currentDoc: null,
       viewMode: 'outline',
@@ -230,6 +232,7 @@ describe('libraryStore', () => {
 
     expect(apiMock.loadDocument).toHaveBeenCalledWith('demo.siwei.json')
     expect(useDocumentStore.getState().selectedNodeId).toBe('node-2')
+    expect(useWorkspaceStore.getState().activeView).toBe('editor')
     expect(useLibraryStore.getState().activeView).toBeNull()
   })
 

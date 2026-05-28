@@ -4,6 +4,7 @@ pub mod import_export;
 pub mod library;
 pub mod recent;
 pub mod search;
+pub mod settings;
 
 pub fn handlers() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
@@ -37,6 +38,8 @@ pub fn handlers() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sy
         library::toggle_library_task,
         dialogs::open_file_dialog,
         dialogs::save_file_dialog,
-        search::search_document
+        search::search_document,
+        settings::get_settings,
+        settings::update_settings
     ]
 }
