@@ -61,6 +61,8 @@ vi.mock('reactflow', async () => {
             <div
               key={node.id}
               data-testid={`flow-node-${node.id}`}
+              data-position-x={node.position?.x}
+              data-position-y={node.position?.y}
               onClick={(event) => {
                 event.stopPropagation()
                 onNodeClick?.(event, node)
@@ -80,7 +82,13 @@ vi.mock('reactflow', async () => {
               }}
               onDrag={(event) => {
                 event.stopPropagation()
-                onNodeDrag?.(event, node)
+                const targetNode = nodes.find((currentNode) => currentNode.id === 'node-1')
+                onNodeDrag?.(event, {
+                  ...node,
+                  position: targetNode?.position ?? node.position ?? { x: 0, y: 0 },
+                  width: 200,
+                  height: 44,
+                })
               }}
               onDragEnd={(event) => {
                 event.stopPropagation()
@@ -230,6 +238,33 @@ describe('MindMapView', () => {
       'node-2',
     ])
     expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toBeUndefined()
+  })
+
+  it('keeps the dragged node position while updating the reorganize drop preview', async () => {
+    useDocumentStore.setState((state) => ({
+      currentDoc: state.currentDoc
+        ? {
+          ...state.currentDoc,
+          mindMapLayout: {
+            root: { x: 0, y: 0 },
+            'node-1': { x: 300, y: 100 },
+            'node-1-1': { x: 600, y: 100 },
+            'node-2': { x: 900, y: 300 },
+          },
+        }
+        : state.currentDoc,
+    }))
+    render(<MindMapView />)
+
+    fireEvent.click(screen.getByRole('button', { name: '重组' }))
+    const draggedNode = screen.getByTestId('flow-node-node-2')
+    expect(draggedNode).toHaveAttribute('data-position-x', '900')
+
+    fireEvent.drag(draggedNode)
+
+    await waitFor(() => expect(screen.getByTestId('mindmap-node-node-1')).toHaveClass('ring-4'))
+    expect(screen.getByTestId('flow-node-node-2')).toHaveAttribute('data-position-x', '300')
+    expect(screen.getByTestId('flow-node-node-2')).toHaveAttribute('data-position-y', '100')
   })
 
 })

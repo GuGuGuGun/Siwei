@@ -30,6 +30,8 @@ interface MindMapEditingState {
 }
 
 type MindMapMode = 'layout' | 'reorganize'
+type MindMapDropPreview = { nodeId: string; zone: MindMapDropZone } | null
+
 const nodeTypes = {
   custom: MindMapNode,
   root: MindMapNode,
@@ -58,11 +60,10 @@ export const MindMapView: React.FC = () => {
   const commitMindMapLayout = useDocumentStore((s) => s.commitMindMapLayout)
   const moveNodeToParent = useDocumentStore((s) => s.moveNodeToParent)
 
-  const [nodes, setNodes, onNodesChange] = useNodesState([])
+  const [nodes, setNodes, onNodesChange] = useNodesState<MindMapNodeData>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [editing, setEditing] = React.useState<MindMapEditingState | null>(null)
   const [mode, setMode] = React.useState<MindMapMode>('layout')
-  const [dropPreview, setDropPreview] = React.useState<{ nodeId: string; zone: MindMapDropZone } | null>(null)
 
   const parentByNodeId = React.useMemo(() => {
     const parents = new Map<string, string | null>()
@@ -162,7 +163,7 @@ export const MindMapView: React.FC = () => {
           childCount: sourceNode?.children.length ?? 0,
           collapsed: Boolean(sourceNode && collapsedNodeIds.has(sourceNode.id)),
           checked: sourceNode?.checked,
-          dropState: dropPreview?.nodeId === node.id ? dropPreview.zone : null,
+          dropState: null,
           editing: editing?.nodeId === node.id,
           onToggleCollapse: toggleCollapse,
           onTextChange: updateNodeText,
@@ -202,9 +203,7 @@ export const MindMapView: React.FC = () => {
     insertChildAndEdit,
     insertSiblingAndEdit,
     moveNode,
-    mode,
     outdentNode,
-    dropPreview,
     selectedNodeId,
     setEdges,
     setNodes,
@@ -215,6 +214,25 @@ export const MindMapView: React.FC = () => {
 
   const handleNodesChange = React.useCallback(onNodesChange, [onNodesChange])
 
+  const updateDropPreview = React.useCallback((preview: MindMapDropPreview, draggedNode?: Node) => {
+    setNodes((currentNodes) => currentNodes.map((node) => ({
+      ...node,
+      position: draggedNode?.id === node.id ? draggedNode.position : node.position,
+      width: draggedNode?.id === node.id ? draggedNode.width ?? node.width : node.width,
+      height: draggedNode?.id === node.id ? draggedNode.height ?? node.height : node.height,
+      data: {
+        ...node.data,
+        dropState: preview?.nodeId === node.id ? preview.zone : null,
+      },
+    })))
+  }, [setNodes])
+
+  React.useEffect(() => {
+    if (mode === 'layout') {
+      updateDropPreview(null)
+    }
+  }, [mode, updateDropPreview])
+
   const resolveDraggedNodeTarget = React.useCallback((draggedNode: Node) => {
     return resolveMindMapDragTarget(draggedNode, nodes)
   }, [nodes])
@@ -222,14 +240,17 @@ export const MindMapView: React.FC = () => {
   const handleNodeDrag = React.useCallback((_event: React.MouseEvent, draggedNode: Node) => {
     if (mode !== 'reorganize') return
     const dragTarget = resolveDraggedNodeTarget(draggedNode)
-    setDropPreview(dragTarget ? { nodeId: dragTarget.targetNodeId, zone: dragTarget.zone } : null)
-  }, [mode, resolveDraggedNodeTarget])
+    updateDropPreview(
+      dragTarget ? { nodeId: dragTarget.targetNodeId, zone: dragTarget.zone } : null,
+      draggedNode,
+    )
+  }, [mode, resolveDraggedNodeTarget, updateDropPreview])
 
   const handleNodeDragStop = React.useCallback((_event: React.MouseEvent, draggedNode: Node) => {
     if (!currentDoc) return
     if (mode === 'reorganize') {
       const dragTarget = resolveDraggedNodeTarget(draggedNode)
-      setDropPreview(null)
+      updateDropPreview(null, draggedNode)
       if (!dragTarget) return
 
       const targetNode = findNodeById(currentDoc.root, dragTarget.targetNodeId)
@@ -278,6 +299,7 @@ export const MindMapView: React.FC = () => {
     nodes,
     parentByNodeId,
     resolveDraggedNodeTarget,
+    updateDropPreview,
   ])
 
   const handleAutoLayout = React.useCallback(() => {
