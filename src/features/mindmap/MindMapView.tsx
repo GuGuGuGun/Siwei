@@ -4,7 +4,6 @@ import ReactFlow, {
   Controls,
   Background,
   Node,
-  NodeChange,
   useNodesState,
   useEdgesState,
 } from 'reactflow'
@@ -63,10 +62,7 @@ export const MindMapView: React.FC = () => {
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [editing, setEditing] = React.useState<MindMapEditingState | null>(null)
   const [mode, setMode] = React.useState<MindMapMode>('layout')
-  const [dragSourceNodeId, setDragSourceNodeId] = React.useState<string | null>(null)
   const [dropPreview, setDropPreview] = React.useState<{ nodeId: string; zone: MindMapDropZone } | null>(null)
-  const dragSourceNodeIdRef = React.useRef<string | null>(null)
-  const dropPreviewRef = React.useRef<{ nodeId: string; zone: MindMapDropZone } | null>(null)
 
   const parentByNodeId = React.useMemo(() => {
     const parents = new Map<string, string | null>()
@@ -180,9 +176,6 @@ export const MindMapView: React.FC = () => {
           onMoveUp: (nodeId) => moveNode(nodeId, 'up'),
           onMoveDown: (nodeId) => moveNode(nodeId, 'down'),
           onToggleChecked: toggleNodeChecked,
-          onReorderDragStart: mode === 'reorganize' ? handleReorderDragStart : undefined,
-          onReorderDragOver: mode === 'reorganize' ? handleReorderDragOver : undefined,
-          onReorderDrop: mode === 'reorganize' ? handleReorderDrop : undefined,
         }
 
         return {
@@ -220,61 +213,23 @@ export const MindMapView: React.FC = () => {
     updateNodeText,
   ])
 
-  const getDropZone = React.useCallback((event: React.DragEvent<HTMLDivElement>): MindMapDropZone => {
-    const rect = event.currentTarget.getBoundingClientRect()
-    return getMindMapDropZone(event.clientY, rect.top, rect.height)
-  }, [])
+  const handleNodesChange = React.useCallback(onNodesChange, [onNodesChange])
 
-  function handleReorderDragOver(nodeId: string, event: React.DragEvent<HTMLDivElement>) {
-    event.preventDefault()
-    event.stopPropagation()
-    const zone = getDropZone(event)
-    const preview = { nodeId, zone }
-    dropPreviewRef.current = preview
-    setDropPreview(preview)
-  }
+  const resolveDraggedNodeTarget = React.useCallback((draggedNode: Node) => {
+    return resolveMindMapDragTarget(draggedNode, nodes)
+  }, [nodes])
 
-  function handleReorderDragStart(nodeId: string) {
-    dragSourceNodeIdRef.current = nodeId
-    setDragSourceNodeId(nodeId)
-  }
-
-  function handleReorderDrop(nodeId: string, event: React.DragEvent<HTMLDivElement>) {
-    event.preventDefault()
-    event.stopPropagation()
-    const sourceNodeId = dragSourceNodeIdRef.current ?? dragSourceNodeId
-    const preview = dropPreviewRef.current
-    const zone = preview?.nodeId === nodeId ? preview.zone : getDropZone(event)
-    dropPreviewRef.current = null
-    dragSourceNodeIdRef.current = null
-    setDropPreview(null)
-    setDragSourceNodeId(null)
-    if (!currentDoc) return
-
-    const targetNode = findNodeById(currentDoc.root, nodeId)
-    const resolvedMove = resolveMindMapDropMove({
-      sourceNodeId,
-      targetNodeId: nodeId,
-      zone,
-      targetParentId: parentByNodeId.get(nodeId),
-      targetIndex: childIndexByNodeId.get(nodeId),
-      targetChildCount: targetNode?.children.length ?? 0,
-    })
-    if (!resolvedMove) return
-
-    moveNodeToParent(sourceNodeId!, resolvedMove.parentNodeId, resolvedMove.targetIndex)
-  }
-
-  const handleNodesChange = React.useCallback((changes: NodeChange[]) => {
-    if (mode === 'layout') {
-      onNodesChange(changes)
-    }
-  }, [mode, onNodesChange])
+  const handleNodeDrag = React.useCallback((_event: React.MouseEvent, draggedNode: Node) => {
+    if (mode !== 'reorganize') return
+    const dragTarget = resolveDraggedNodeTarget(draggedNode)
+    setDropPreview(dragTarget ? { nodeId: dragTarget.targetNodeId, zone: dragTarget.zone } : null)
+  }, [mode, resolveDraggedNodeTarget])
 
   const handleNodeDragStop = React.useCallback((_event: React.MouseEvent, draggedNode: Node) => {
     if (!currentDoc) return
     if (mode === 'reorganize') {
-      const dragTarget = resolveMindMapDragTarget(draggedNode, nodes)
+      const dragTarget = resolveDraggedNodeTarget(draggedNode)
+      setDropPreview(null)
       if (!dragTarget) return
 
       const targetNode = findNodeById(currentDoc.root, dragTarget.targetNodeId)
@@ -322,6 +277,7 @@ export const MindMapView: React.FC = () => {
     moveNodeToParent,
     nodes,
     parentByNodeId,
+    resolveDraggedNodeTarget,
   ])
 
   const handleAutoLayout = React.useCallback(() => {
@@ -457,6 +413,7 @@ export const MindMapView: React.FC = () => {
         onPaneClick={handlePaneClick}
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
         onKeyDown={handleKeyDown}
         fitView

@@ -84,9 +84,9 @@ vi.mock('reactflow', async () => {
               }}
               onDragEnd={(event) => {
                 event.stopPropagation()
-                const isReorganizeMode = Boolean(
-                  (node.data as { onReorderDragStart?: unknown }).onReorderDragStart,
-                )
+                const isReorganizeMode = document
+                  .querySelector('[aria-label="重组"]')
+                  ?.className.includes('bg-emerald-100') ?? false
                 const targetNode = nodes.find((currentNode) => currentNode.id === 'node-1')
                 const draggedPosition = isReorganizeMode && targetNode
                   ? targetNode.position ?? { x: 0, y: 0 }
@@ -209,21 +209,12 @@ describe('MindMapView', () => {
     expect(useDocumentStore.getState().isDirty).toBe(true)
   })
 
-  it('switches to reorganize mode and moves a node using the middle drop zone', async () => {
+  it('switches to reorganize mode and keeps the ReactFlow drag channel enabled', async () => {
     render(<MindMapView />)
 
     fireEvent.click(screen.getByRole('button', { name: '重组' }))
     expect(screen.getByTestId('react-flow')).toHaveAttribute('data-nodes-draggable', 'true')
-    await waitFor(() => expect(screen.getByTestId('mindmap-node-node-2')).toHaveAttribute('draggable', 'true'))
-    fireEvent.dragStart(screen.getByTestId('mindmap-node-node-2'))
-    fireEvent.dragOver(screen.getByTestId('mindmap-node-node-1'), { clientY: 22 })
-    fireEvent.drop(screen.getByTestId('mindmap-node-node-1'), { clientY: 22 })
-
-    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual(['node-1'])
-    expect(useDocumentStore.getState().currentDoc?.root.children[0].children.map((node) => node.id)).toEqual([
-      'node-1-1',
-      'node-2',
-    ])
+    await waitFor(() => expect(screen.getByTestId('mindmap-node-node-2')).not.toHaveAttribute('draggable'))
   })
 
   it('uses ReactFlow dragging in reorganize mode to move nodes', async () => {
