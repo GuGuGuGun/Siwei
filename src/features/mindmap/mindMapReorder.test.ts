@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getMindMapDropZone, resolveMindMapDropMove } from './mindMapReorder'
+import { getMindMapDropZone, resolveMindMapDragTarget, resolveMindMapDropMove } from './mindMapReorder'
 
 describe('mindMapReorder', () => {
   it('maps node vertical thirds into before child and after drop zones', () => {
@@ -35,6 +35,24 @@ describe('mindMapReorder', () => {
       targetIndex: 2,
       targetChildCount: 0,
     })).toEqual({ parentNodeId: 'root', targetIndex: 3 })
+  })
+
+  it('resolves a ReactFlow drag stop position into a target node drop zone', () => {
+    expect(resolveMindMapDragTarget(
+      { id: 'dragged', position: { x: 110, y: -12 }, width: 200, height: 44 },
+      [
+        { id: 'target', position: { x: 200, y: 0 }, width: 200, height: 80 },
+        { id: 'dragged', position: { x: 110, y: -12 }, width: 200, height: 44 },
+      ],
+    )).toEqual({ targetNodeId: 'target', zone: 'before' })
+
+    expect(resolveMindMapDragTarget(
+      { id: 'dragged', position: { x: 110, y: 48 }, width: 200, height: 44 },
+      [
+        { id: 'target', position: { x: 200, y: 0 }, width: 200, height: 80 },
+        { id: 'dragged', position: { x: 110, y: 48 }, width: 200, height: 44 },
+      ],
+    )).toEqual({ targetNodeId: 'target', zone: 'after' })
   })
 
   it('ignores self and root-level sibling drops without a parent', () => {

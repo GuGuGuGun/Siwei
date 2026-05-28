@@ -19,7 +19,12 @@ import { MindMapNode, MindMapNodeData } from './MindMapNode'
 import { MindMapContextMenu } from './MindMapContextMenu'
 import { MindMapDeleteDialog } from './MindMapDeleteDialog'
 import { findNodeById, formatDeleteConfirmation } from './mindMapActions'
-import { getMindMapDropZone, MindMapDropZone, resolveMindMapDropMove } from './mindMapReorder'
+import {
+  getMindMapDropZone,
+  MindMapDropZone,
+  resolveMindMapDragTarget,
+  resolveMindMapDropMove,
+} from './mindMapReorder'
 
 interface MindMapEditingState {
   nodeId: string
@@ -267,7 +272,26 @@ export const MindMapView: React.FC = () => {
   }, [mode, onNodesChange])
 
   const handleNodeDragStop = React.useCallback((_event: React.MouseEvent, draggedNode: Node) => {
-    if (!currentDoc || mode !== 'layout') return
+    if (!currentDoc) return
+    if (mode === 'reorganize') {
+      const dragTarget = resolveMindMapDragTarget(draggedNode, nodes)
+      if (!dragTarget) return
+
+      const targetNode = findNodeById(currentDoc.root, dragTarget.targetNodeId)
+      const resolvedMove = resolveMindMapDropMove({
+        sourceNodeId: draggedNode.id,
+        targetNodeId: dragTarget.targetNodeId,
+        zone: dragTarget.zone,
+        targetParentId: parentByNodeId.get(dragTarget.targetNodeId),
+        targetIndex: childIndexByNodeId.get(dragTarget.targetNodeId),
+        targetChildCount: targetNode?.children.length ?? 0,
+      })
+      if (!resolvedMove) return
+
+      moveNodeToParent(draggedNode.id, resolvedMove.parentNodeId, resolvedMove.targetIndex)
+      return
+    }
+
     const descendantIds = getNodeDescendantIds(draggedNode.id)
     const existingNode = nodes.find((node) => node.id === draggedNode.id)
     const delta = existingNode
@@ -289,7 +313,16 @@ export const MindMapView: React.FC = () => {
     }, {})
 
     commitMindMapLayout(layout)
-  }, [commitMindMapLayout, currentDoc, getNodeDescendantIds, mode, nodes])
+  }, [
+    childIndexByNodeId,
+    commitMindMapLayout,
+    currentDoc,
+    getNodeDescendantIds,
+    mode,
+    moveNodeToParent,
+    nodes,
+    parentByNodeId,
+  ])
 
   const handleAutoLayout = React.useCallback(() => {
     if (!currentDoc) return
@@ -430,7 +463,7 @@ export const MindMapView: React.FC = () => {
         fitViewOptions={{ padding: 0.25 }}
         minZoom={0.1}
         maxZoom={2}
-        nodesDraggable={mode === 'layout'}
+        nodesDraggable
         nodesConnectable={false}
         elementsSelectable
         className="text-zinc-700"

@@ -13,11 +13,14 @@ vi.mock('reactflow', async () => {
     data: unknown
     selected?: boolean
     position?: { x: number; y: number }
+    width?: number
+    height?: number
   }
 
   interface MockReactFlowProps {
     nodes: MockFlowNode[]
     nodeTypes: Record<string, React.ComponentType<{ id: string; data: unknown; selected?: boolean; type: string }>>
+    nodesDraggable?: boolean
     onNodeClick?: (event: React.MouseEvent, node: MockFlowNode) => void
     onNodeDoubleClick?: (event: React.MouseEvent, node: MockFlowNode) => void
     onNodeContextMenu?: (event: React.MouseEvent, node: MockFlowNode) => void
@@ -43,8 +46,15 @@ vi.mock('reactflow', async () => {
       onPaneClick,
       onKeyDown,
       children,
+      nodesDraggable,
     }: MockReactFlowProps) => (
-      <div data-testid="react-flow" tabIndex={0} onClick={onPaneClick} onKeyDown={onKeyDown}>
+      <div
+        data-testid="react-flow"
+        data-nodes-draggable={String(nodesDraggable)}
+        tabIndex={0}
+        onClick={onPaneClick}
+        onKeyDown={onKeyDown}
+      >
         {nodes.map((node) => {
           const NodeComponent = nodeTypes[node.type]
           return (
@@ -74,7 +84,24 @@ vi.mock('reactflow', async () => {
               }}
               onDragEnd={(event) => {
                 event.stopPropagation()
-                onNodeDragStop?.(event, { ...node, position: { x: 333, y: 222 } }, nodes)
+                const isReorganizeMode = Boolean(
+                  (node.data as { onReorderDragStart?: unknown }).onReorderDragStart,
+                )
+                const targetNode = nodes.find((currentNode) => currentNode.id === 'node-1')
+                const draggedPosition = isReorganizeMode && targetNode
+                  ? targetNode.position ?? { x: 0, y: 0 }
+                  : { x: 333, y: 222 }
+                const measuredNodes = nodes.map((currentNode) => ({
+                  ...currentNode,
+                  width: 200,
+                  height: 44,
+                }))
+                onNodeDragStop?.(event, {
+                  ...node,
+                  position: draggedPosition,
+                  width: 200,
+                  height: 44,
+                }, measuredNodes)
               }}
               draggable
             >
@@ -186,6 +213,7 @@ describe('MindMapView', () => {
     render(<MindMapView />)
 
     fireEvent.click(screen.getByRole('button', { name: '重组' }))
+    expect(screen.getByTestId('react-flow')).toHaveAttribute('data-nodes-draggable', 'true')
     await waitFor(() => expect(screen.getByTestId('mindmap-node-node-2')).toHaveAttribute('draggable', 'true'))
     fireEvent.dragStart(screen.getByTestId('mindmap-node-node-2'))
     fireEvent.dragOver(screen.getByTestId('mindmap-node-node-1'), { clientY: 22 })
@@ -196,6 +224,21 @@ describe('MindMapView', () => {
       'node-1-1',
       'node-2',
     ])
+  })
+
+  it('uses ReactFlow dragging in reorganize mode to move nodes', async () => {
+    render(<MindMapView />)
+
+    fireEvent.click(screen.getByRole('button', { name: '重组' }))
+    expect(screen.getByTestId('react-flow')).toHaveAttribute('data-nodes-draggable', 'true')
+    fireEvent.dragEnd(screen.getByTestId('flow-node-node-2'))
+
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual(['node-1'])
+    expect(useDocumentStore.getState().currentDoc?.root.children[0].children.map((node) => node.id)).toEqual([
+      'node-1-1',
+      'node-2',
+    ])
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toBeUndefined()
   })
 
 })
