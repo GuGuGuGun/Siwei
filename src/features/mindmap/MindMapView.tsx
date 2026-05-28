@@ -19,6 +19,7 @@ import { MindMapContextMenu } from './MindMapContextMenu'
 import { MindMapDeleteDialog } from './MindMapDeleteDialog'
 import { findNodeById, formatDeleteConfirmation } from './mindMapActions'
 import {
+  DEFAULT_MIND_MAP_NODE_WIDTH,
   getMindMapDropZone,
   MindMapDropZone,
   resolveMindMapDragTarget,
@@ -36,6 +37,8 @@ const nodeTypes = {
   custom: MindMapNode,
   root: MindMapNode,
 }
+
+const REORGANIZE_CHILD_PREVIEW_GAP = 32
 
 const isTextInputTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) return false
@@ -64,6 +67,7 @@ export const MindMapView: React.FC = () => {
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [editing, setEditing] = React.useState<MindMapEditingState | null>(null)
   const [mode, setMode] = React.useState<MindMapMode>('layout')
+  const dragStartPositionsRef = React.useRef<Map<string, { x: number; y: number }> | null>(null)
 
   const parentByNodeId = React.useMemo(() => {
     const parents = new Map<string, string | null>()
@@ -215,17 +219,38 @@ export const MindMapView: React.FC = () => {
   const handleNodesChange = React.useCallback(onNodesChange, [onNodesChange])
 
   const updateDropPreview = React.useCallback((preview: MindMapDropPreview, draggedNode?: Node) => {
-    setNodes((currentNodes) => currentNodes.map((node) => ({
-      ...node,
-      position: draggedNode?.id === node.id ? draggedNode.position : node.position,
-      width: draggedNode?.id === node.id ? draggedNode.width ?? node.width : node.width,
-      height: draggedNode?.id === node.id ? draggedNode.height ?? node.height : node.height,
-      data: {
-        ...node.data,
-        dropState: preview?.nodeId === node.id ? preview.zone : null,
-      },
-    })))
-  }, [setNodes])
+    setNodes((currentNodes) => {
+      const sourcePositions = dragStartPositionsRef.current
+      const previewTarget = preview?.zone === 'child'
+        ? currentNodes.find((node) => node.id === preview.nodeId)
+        : null
+      const previewDescendantIds = previewTarget ? getNodeDescendantIds(previewTarget.id) : new Set<string>()
+      const previewShiftX = previewTarget
+        ? (draggedNode?.width ?? DEFAULT_MIND_MAP_NODE_WIDTH) + REORGANIZE_CHILD_PREVIEW_GAP
+        : 0
+
+      return currentNodes.map((node) => {
+        const basePosition = sourcePositions?.get(node.id) ?? node.position
+        const shouldShiftForChildPreview = previewTarget !== null && previewDescendantIds.has(node.id)
+        const nextPosition = draggedNode?.id === node.id
+          ? draggedNode.position
+          : shouldShiftForChildPreview
+            ? { x: basePosition.x + previewShiftX, y: basePosition.y }
+            : basePosition
+
+        return {
+          ...node,
+          position: nextPosition,
+          width: draggedNode?.id === node.id ? draggedNode.width ?? node.width : node.width,
+          height: draggedNode?.id === node.id ? draggedNode.height ?? node.height : node.height,
+          data: {
+            ...node.data,
+            dropState: preview?.nodeId === node.id ? preview.zone : null,
+          },
+        }
+      })
+    })
+  }, [getNodeDescendantIds, setNodes])
 
   React.useEffect(() => {
     if (mode === 'layout') {
@@ -239,18 +264,22 @@ export const MindMapView: React.FC = () => {
 
   const handleNodeDrag = React.useCallback((_event: React.MouseEvent, draggedNode: Node) => {
     if (mode !== 'reorganize') return
+    if (!dragStartPositionsRef.current) {
+      dragStartPositionsRef.current = new Map(nodes.map((node) => [node.id, node.position]))
+    }
     const dragTarget = resolveDraggedNodeTarget(draggedNode)
     updateDropPreview(
       dragTarget ? { nodeId: dragTarget.targetNodeId, zone: dragTarget.zone } : null,
       draggedNode,
     )
-  }, [mode, resolveDraggedNodeTarget, updateDropPreview])
+  }, [mode, nodes, resolveDraggedNodeTarget, updateDropPreview])
 
   const handleNodeDragStop = React.useCallback((_event: React.MouseEvent, draggedNode: Node) => {
     if (!currentDoc) return
     if (mode === 'reorganize') {
       const dragTarget = resolveDraggedNodeTarget(draggedNode)
       updateDropPreview(null, draggedNode)
+      dragStartPositionsRef.current = null
       if (!dragTarget) return
 
       const targetNode = findNodeById(currentDoc.root, dragTarget.targetNodeId)

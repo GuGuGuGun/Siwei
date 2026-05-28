@@ -267,4 +267,31 @@ describe('MindMapView', () => {
     expect(screen.getByTestId('flow-node-node-2')).toHaveAttribute('data-position-y', '100')
   })
 
+  it('reserves child-column space while previewing a reorganize child drop', async () => {
+    useDocumentStore.setState((state) => ({
+      currentDoc: state.currentDoc
+        ? {
+          ...state.currentDoc,
+          mindMapLayout: {
+            root: { x: 0, y: 0 },
+            'node-1': { x: 100, y: 80 },
+            'node-1-1': { x: 240, y: 96 },
+            'node-2': { x: 500, y: 220 },
+          },
+        }
+        : state.currentDoc,
+    }))
+    render(<MindMapView />)
+
+    fireEvent.click(screen.getByRole('button', { name: '重组' }))
+    fireEvent.drag(screen.getByTestId('flow-node-node-2'))
+
+    await waitFor(() => expect(screen.getByTestId('mindmap-node-node-1')).toHaveClass('ring-4'))
+    expect(Number(screen.getByTestId('flow-node-node-1-1').dataset.positionX)).toBeGreaterThanOrEqual(340)
+
+    fireEvent.dragEnd(screen.getByTestId('flow-node-node-2'))
+
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.['node-1-1']).toEqual({ x: 240, y: 96 })
+  })
+
 })

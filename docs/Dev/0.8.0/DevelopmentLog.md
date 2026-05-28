@@ -15,3 +15,11 @@
 - 影响范围：脑图节点组件、脑图视图拖拽处理、重组命中测试。
 - 测试或验证结果：`pnpm test`、`pnpm run build` 均通过。
 - 遗留问题或后续计划：建议后续补浏览器级拖拽 smoke，验证 ReactFlow pointer 拖拽在真实运行环境中的手感。
+
+## Phase 3：重组子级预览避让
+
+- 阶段目标：修复重组模式下将节点拖为子节点时，拖拽节点遮挡目标节点既有子节点的问题。
+- 核心变更：重组拖拽开始时记录节点原始坐标；命中 `child` 预览时临时将目标节点可见后代右移，为拖拽节点预留横向空间；拖停后清理预览位移，不写入持久布局。
+- 影响范围：脑图重组预览布局、重组命中测试、前端组件规范。
+- 测试或验证结果：`.\\node_modules\\.bin\\vitest.CMD run src/features/mindmap/MindMapView.test.tsx src/features/mindmap/mindMapReorder.test.ts`、`pnpm test`、`pnpm run build` 均通过。
+- 遗留问题或后续计划：未执行 Playwright e2e；如后续调整真实拖拽手感，建议补浏览器级拖拽 smoke。

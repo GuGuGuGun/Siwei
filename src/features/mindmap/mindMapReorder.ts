@@ -29,8 +29,8 @@ export interface ResolvedDragTarget {
   zone: MindMapDropZone
 }
 
-const DEFAULT_NODE_WIDTH = 200
-const DEFAULT_NODE_HEIGHT = 44
+export const DEFAULT_MIND_MAP_NODE_WIDTH = 200
+export const DEFAULT_MIND_MAP_NODE_HEIGHT = 44
 
 export function getMindMapDropZone(clientY: number, rectTop: number, rectHeight: number): MindMapDropZone {
   const relativeY = rectHeight === 0 ? clientY / 44 : (clientY - rectTop) / rectHeight
@@ -43,8 +43,8 @@ export function resolveMindMapDragTarget(
   draggedNode: FlowLikeNode,
   nodes: FlowLikeNode[],
 ): ResolvedDragTarget | null {
-  const draggedWidth = draggedNode.width ?? DEFAULT_NODE_WIDTH
-  const draggedHeight = draggedNode.height ?? DEFAULT_NODE_HEIGHT
+  const draggedWidth = draggedNode.width ?? DEFAULT_MIND_MAP_NODE_WIDTH
+  const draggedHeight = draggedNode.height ?? DEFAULT_MIND_MAP_NODE_HEIGHT
   const center = {
     x: draggedNode.position.x + draggedWidth / 2,
     y: draggedNode.position.y + draggedHeight / 2,
@@ -53,8 +53,8 @@ export function resolveMindMapDragTarget(
   for (const node of nodes) {
     if (node.id === draggedNode.id) continue
 
-    const width = node.width ?? DEFAULT_NODE_WIDTH
-    const height = node.height ?? DEFAULT_NODE_HEIGHT
+    const width = node.width ?? DEFAULT_MIND_MAP_NODE_WIDTH
+    const height = node.height ?? DEFAULT_MIND_MAP_NODE_HEIGHT
     const left = node.position.x
     const top = node.position.y
     const right = left + width
