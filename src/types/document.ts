@@ -4,7 +4,13 @@ export interface OutlineDocument {
   version: number
   createdAt: number
   updatedAt: number
+  mindMapLayout?: Record<string, MindMapLayoutPosition>
   root: OutlineNode
+}
+
+export interface MindMapLayoutPosition {
+  x: number
+  y: number
 }
 
 export interface OutlineNode {

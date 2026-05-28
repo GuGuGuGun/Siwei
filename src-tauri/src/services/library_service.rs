@@ -1441,6 +1441,7 @@ mod tests {
             version: 1,
             created_at: 1,
             updated_at: 10,
+            mind_map_layout: None,
             root: node("root", title, vec![task]),
         }
     }

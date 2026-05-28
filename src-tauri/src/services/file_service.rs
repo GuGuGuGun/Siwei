@@ -176,6 +176,7 @@ mod tests {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            mind_map_layout: None,
             root: OutlineNode {
                 id: format!("root_{child_id}"),
                 text: title.to_string(),

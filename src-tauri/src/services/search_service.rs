@@ -154,6 +154,7 @@ mod tests {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            mind_map_layout: None,
             root: node(
                 "root",
                 "Root",
@@ -185,6 +186,7 @@ mod tests {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            mind_map_layout: None,
             root: node("root", "Root", Vec::new()),
         };
 
@@ -200,6 +202,7 @@ mod tests {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            mind_map_layout: None,
             root: node("root", "文档😀测试", Vec::new()),
         };
 
@@ -223,6 +226,7 @@ mod tests {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            mind_map_layout: None,
             root: node("root", "Root", vec![child]),
         };
 
@@ -253,6 +257,7 @@ mod tests {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            mind_map_layout: None,
             root: node("root", "Root", vec![child]),
         };
 

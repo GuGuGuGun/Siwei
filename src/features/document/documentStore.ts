@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { OutlineDocument, OutlineNode } from '../../types/document'
+import { MindMapLayoutPosition, OutlineDocument, OutlineNode } from '../../types/document'
 import * as api from '../../services/siweiApi'
 import { generateId } from '../../utils/id'
 import {
@@ -21,6 +21,7 @@ import {
   moveNodeUpAtPath,
   moveNodeDownAtPath,
   moveNodeToSiblingIndexAtPath,
+  moveNodeToParentIndexAtPath,
   getVisibleNodes,
 } from '../../utils/tree'
 
@@ -85,6 +86,8 @@ interface DocumentState {
   outdentNode: (nodeId: string) => void
   moveNode: (nodeId: string, direction: 'up' | 'down') => void
   moveNodeToSibling: (sourceNodeId: string, targetNodeId: string) => void
+  moveNodeToParent: (sourceNodeId: string, targetParentNodeId: string, targetIndex: number) => void
+  commitMindMapLayout: (layout: Record<string, MindMapLayoutPosition>) => void
   insertNode: (nodeId: string, text?: string) => string | null
   insertSiblingNode: (nodeId: string, text?: string) => string | null
   insertChildNode: (parentNodeId: string, text?: string) => string | null
@@ -289,6 +292,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     return node
   }
 
+  const getDocumentWithVersionForSave = (doc: OutlineDocument): OutlineDocument => {
+    if (!doc.mindMapLayout) return doc
+    return {
+      ...doc,
+      version: Math.max(doc.version, 2),
+    }
+  }
+
   return {
     currentDoc: null,
     viewMode: 'outline',
@@ -394,11 +405,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           }
         }
 
-        const updatedDoc = {
+        const updatedDoc = getDocumentWithVersionForSave({
           ...state.currentDoc,
           root: syncCollapsed(state.currentDoc.root),
           updatedAt: Date.now(),
-        }
+        })
 
         await api.saveDocument(path, updatedDoc)
 
@@ -690,6 +701,55 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         selectedNodeId: sourceNodeId,
         isDirty: true,
       })
+      setHistoryAfterMutation(before)
+    },
+
+    moveNodeToParent: (sourceNodeId, targetParentNodeId, targetIndex) => {
+      const before = beginMutation()
+      const { currentDoc, collapsedNodeIds } = get()
+      if (!currentDoc || !before || sourceNodeId === targetParentNodeId) return
+
+      const sourcePath = findPath(currentDoc.root, sourceNodeId)
+      const targetParentPath = findPath(currentDoc.root, targetParentNodeId)
+      if (!sourcePath || !targetParentPath) return
+
+      const newRoot = moveNodeToParentIndexAtPath(currentDoc.root, sourcePath, targetParentPath, targetIndex)
+      if (newRoot === currentDoc.root) return
+
+      const newCollapsedIds = new Set(collapsedNodeIds)
+      newCollapsedIds.delete(targetParentNodeId)
+
+      set({
+        currentDoc: {
+          ...currentDoc,
+          root: newRoot,
+          updatedAt: Date.now(),
+        },
+        collapsedNodeIds: newCollapsedIds,
+        selectedNodeId: sourceNodeId,
+        isDirty: true,
+      })
+      setHistoryAfterMutation(before)
+    },
+
+    commitMindMapLayout: (layout) => {
+      const before = beginMutation()
+      const { currentDoc } = get()
+      if (!currentDoc || !before) return
+
+      const updatedDoc = {
+        ...currentDoc,
+        version: Math.max(currentDoc.version, 2),
+        updatedAt: Date.now(),
+        mindMapLayout: layout,
+      }
+
+      set((state) => ({
+        currentDoc: updatedDoc,
+        isDirty: state.cleanSnapshotKey === null
+          ? true
+          : createSnapshot(updatedDoc, state.selectedNodeId, state.collapsedNodeIds).key !== state.cleanSnapshotKey,
+      }))
       setHistoryAfterMutation(before)
     },
 

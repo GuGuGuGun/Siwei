@@ -67,6 +67,7 @@ pub fn import_markdown(content: &str) -> Result<OutlineDocument, AppError> {
         version: 1,
         created_at: timestamp,
         updated_at: timestamp,
+        mind_map_layout: None,
         root,
     };
     doc.validate()?;

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +12,16 @@ pub struct OutlineDocument {
     pub version: u32,
     pub created_at: u64,
     pub updated_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mind_map_layout: Option<BTreeMap<String, MindMapLayoutPosition>>,
     pub root: OutlineNode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MindMapLayoutPosition {
+    pub x: i64,
+    pub y: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -44,6 +53,7 @@ impl OutlineDocument {
             version: 1,
             created_at: timestamp,
             updated_at: timestamp,
+            mind_map_layout: None,
             root: OutlineNode::new(title, timestamp),
         }
     }
@@ -132,6 +142,8 @@ impl OutlineNode {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use pretty_assertions::assert_eq;
     use serde_json::json;
 
@@ -156,6 +168,7 @@ mod tests {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            mind_map_layout: None,
             root: OutlineNode {
                 id: "root_123".to_string(),
                 text: "Title".to_string(),
@@ -199,6 +212,62 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn serializes_mind_map_layout_as_camel_case() {
+        let mut doc = sample_doc();
+        doc.version = 2;
+        doc.mind_map_layout = Some(BTreeMap::from([(
+            "child_123".to_string(),
+            super::MindMapLayoutPosition { x: 120, y: 80 },
+        )]));
+
+        let value = serde_json::to_value(doc).unwrap();
+
+        assert_eq!(
+            value["mindMapLayout"],
+            json!({
+                "child_123": {
+                    "x": 120,
+                    "y": 80
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn deserializes_legacy_document_without_mind_map_layout() {
+        let doc: OutlineDocument = serde_json::from_value(json!({
+            "id": "doc_123",
+            "title": "Title",
+            "version": 1,
+            "createdAt": 1,
+            "updatedAt": 1,
+            "root": {
+                "id": "root_123",
+                "text": "Title",
+                "createdAt": 1,
+                "updatedAt": 1,
+                "children": []
+            }
+        })).unwrap();
+
+        assert_eq!(doc.version, 1);
+        assert!(doc.mind_map_layout.is_none());
+        assert!(doc.validate().is_ok());
+    }
+
+    #[test]
+    fn validates_version_two_documents_with_layout() {
+        let mut doc = sample_doc();
+        doc.version = 2;
+        doc.mind_map_layout = Some(BTreeMap::from([(
+            "child_123".to_string(),
+            super::MindMapLayoutPosition { x: 120, y: 80 },
+        )]));
+
+        assert!(doc.validate().is_ok());
     }
 
     #[test]

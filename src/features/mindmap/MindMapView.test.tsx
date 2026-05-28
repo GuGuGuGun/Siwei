@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDocument } from '../../test/fixtures'
 import { useDocumentStore } from '../document/documentStore'
@@ -12,6 +12,7 @@ vi.mock('reactflow', async () => {
     type: string
     data: unknown
     selected?: boolean
+    position?: { x: number; y: number }
   }
 
   interface MockReactFlowProps {
@@ -20,6 +21,9 @@ vi.mock('reactflow', async () => {
     onNodeClick?: (event: React.MouseEvent, node: MockFlowNode) => void
     onNodeDoubleClick?: (event: React.MouseEvent, node: MockFlowNode) => void
     onNodeContextMenu?: (event: React.MouseEvent, node: MockFlowNode) => void
+    onNodeDragStop?: (event: React.MouseEvent, node: MockFlowNode, nodes: MockFlowNode[]) => void
+    onNodeDrag?: (event: React.MouseEvent, node: MockFlowNode) => void
+    onNodeDragStart?: (event: React.MouseEvent, node: MockFlowNode) => void
     onPaneClick?: () => void
     onKeyDown?: (event: React.KeyboardEvent) => void
     children?: React.ReactNode
@@ -33,6 +37,9 @@ vi.mock('reactflow', async () => {
       onNodeClick,
       onNodeDoubleClick,
       onNodeContextMenu,
+      onNodeDrag,
+      onNodeDragStart,
+      onNodeDragStop,
       onPaneClick,
       onKeyDown,
       children,
@@ -57,6 +64,19 @@ vi.mock('reactflow', async () => {
                 event.stopPropagation()
                 onNodeContextMenu?.(event, node)
               }}
+              onDragStart={(event) => {
+                event.stopPropagation()
+                onNodeDragStart?.(event, node)
+              }}
+              onDrag={(event) => {
+                event.stopPropagation()
+                onNodeDrag?.(event, node)
+              }}
+              onDragEnd={(event) => {
+                event.stopPropagation()
+                onNodeDragStop?.(event, { ...node, position: { x: 333, y: 222 } }, nodes)
+              }}
+              draggable
             >
               <NodeComponent id={node.id} data={node.data} selected={node.selected} type={node.type} />
             </div>
@@ -152,4 +172,30 @@ describe('MindMapView', () => {
       'node-2',
     ])
   })
+
+  it('commits node position changes in layout mode', () => {
+    render(<MindMapView />)
+
+    fireEvent.dragEnd(screen.getByTestId('flow-node-node-2'))
+
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.['node-2']).toEqual({ x: 333, y: 222 })
+    expect(useDocumentStore.getState().isDirty).toBe(true)
+  })
+
+  it('switches to reorganize mode and moves a node using the middle drop zone', async () => {
+    render(<MindMapView />)
+
+    fireEvent.click(screen.getByRole('button', { name: '重组' }))
+    await waitFor(() => expect(screen.getByTestId('mindmap-node-node-2')).toHaveAttribute('draggable', 'true'))
+    fireEvent.dragStart(screen.getByTestId('mindmap-node-node-2'))
+    fireEvent.dragOver(screen.getByTestId('mindmap-node-node-1'), { clientY: 22 })
+    fireEvent.drop(screen.getByTestId('mindmap-node-node-1'), { clientY: 22 })
+
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual(['node-1'])
+    expect(useDocumentStore.getState().currentDoc?.root.children[0].children.map((node) => node.id)).toEqual([
+      'node-1-1',
+      'node-2',
+    ])
+  })
+
 })

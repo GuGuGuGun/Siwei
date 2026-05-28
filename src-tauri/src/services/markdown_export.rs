@@ -102,6 +102,7 @@ mod tests {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            mind_map_layout: None,
             root: node(
                 "root",
                 "Project",
@@ -126,6 +127,7 @@ mod tests {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            mind_map_layout: None,
             root: node(
                 "root",
                 "Project",
@@ -153,6 +155,7 @@ mod tests {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            mind_map_layout: None,
             root: node("root", "Project", vec![task]),
         };
 

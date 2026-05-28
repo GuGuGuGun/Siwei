@@ -7,6 +7,7 @@ export interface MindMapNodeData {
   label: string
   childCount: number
   collapsed: boolean
+  dropState?: 'before' | 'child' | 'after' | null
   checked?: boolean
   editing: boolean
   onToggleCollapse: (nodeId: string) => void
@@ -21,6 +22,9 @@ export interface MindMapNodeData {
   onMoveUp: (nodeId: string) => void
   onMoveDown: (nodeId: string) => void
   onToggleChecked: (nodeId: string) => void
+  onReorderDragStart?: (nodeId: string) => void
+  onReorderDragOver?: (nodeId: string, event: React.DragEvent<HTMLDivElement>) => void
+  onReorderDrop?: (nodeId: string, event: React.DragEvent<HTMLDivElement>) => void
 }
 
 export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, selected, type }) => {
@@ -29,12 +33,21 @@ export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, se
 
   return (
     <div
-      className={`min-w-[170px] max-w-[240px] rounded-xl border-2 px-3 py-2 text-center shadow-fabric transition-all duration-200 ${
-        selected
+      data-testid={`mindmap-node-${id}`}
+      draggable={Boolean(data.onReorderDragStart)}
+      onDragStart={() => data.onReorderDragStart?.(id)}
+      onDragOver={(event) => data.onReorderDragOver?.(id, event)}
+      onDrop={(event) => data.onReorderDrop?.(id, event)}
+      className={`relative min-w-[170px] max-w-[240px] rounded-xl border-2 px-3 py-2 text-center shadow-fabric transition-all duration-200 ${
+        data.dropState === 'child'
+          ? 'scale-[1.02] border-emerald-500 bg-emerald-50 ring-4 ring-emerald-500/10'
+          : selected
           ? 'scale-[1.03] border-dashed border-amber-600 bg-[#FCFAF0] ring-4 ring-amber-600/5'
           : 'border-dashed border-amber-900/20 bg-[#FAF6EC] hover:border-amber-900/40 hover:bg-[#FAF5E6]'
       }`}
     >
+      {data.dropState === 'before' && <div className="absolute -top-2 left-2 right-2 h-0.5 rounded bg-emerald-600" />}
+      {data.dropState === 'after' && <div className="absolute -bottom-2 left-2 right-2 h-0.5 rounded bg-emerald-600" />}
       {!isRoot && (
         <Handle
           type="target"

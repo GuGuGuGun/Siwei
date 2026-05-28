@@ -246,6 +246,101 @@ export function moveNodeToSiblingIndexAtPath(
   });
 }
 
+const arePathsEqual = (left: number[], right: number[]): boolean => {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+const isPathPrefix = (parent: number[], child: number[]): boolean => {
+  return parent.length <= child.length && parent.every((value, index) => value === child[index]);
+}
+
+const isValidPath = (root: OutlineNode, path: number[]): boolean => {
+  let node = root;
+  for (const index of path) {
+    if (index < 0 || index >= node.children.length) return false;
+    node = node.children[index];
+  }
+  return true;
+}
+
+const getNodeAtPath = (root: OutlineNode, path: number[]): OutlineNode | null => {
+  let node = root;
+  for (const index of path) {
+    if (index < 0 || index >= node.children.length) return null;
+    node = node.children[index];
+  }
+  return node;
+}
+
+const adjustTargetParentPathAfterRemoval = (
+  sourcePath: number[],
+  targetParentPath: number[],
+): number[] => {
+  const sourceParentPath = sourcePath.slice(0, -1);
+  if (!isPathPrefix(sourceParentPath, targetParentPath)) return targetParentPath;
+
+  const sourceIndex = sourcePath[sourcePath.length - 1];
+  const affectedDepth = sourceParentPath.length;
+  const targetIndexAtDepth = targetParentPath[affectedDepth];
+  if (targetIndexAtDepth === undefined || targetIndexAtDepth <= sourceIndex) return targetParentPath;
+
+  const adjustedPath = [...targetParentPath];
+  adjustedPath[affectedDepth] = targetIndexAtDepth - 1;
+  return adjustedPath;
+}
+
+/**
+ * Moves a node to a target parent's child index. Supports cross-level moves and
+ * rejects cycles so the tree shape remains valid.
+ */
+export function moveNodeToParentIndexAtPath(
+  root: OutlineNode,
+  sourcePath: number[],
+  targetParentPath: number[],
+  targetIndex: number,
+): OutlineNode {
+  if (sourcePath.length === 0 || targetIndex < 0) return root;
+  if (!isValidPath(root, sourcePath) || !isValidPath(root, targetParentPath)) return root;
+  if (arePathsEqual(sourcePath, targetParentPath) || isPathPrefix(sourcePath, targetParentPath)) return root;
+
+  const sourceParentPath = sourcePath.slice(0, -1);
+  const sourceIndex = sourcePath[sourcePath.length - 1];
+  const targetParent = getNodeAtPath(root, targetParentPath);
+  if (!targetParent || targetIndex > targetParent.children.length) return root;
+
+  if (arePathsEqual(sourceParentPath, targetParentPath)) {
+    const childCountAfterRemoval = targetParent.children.length - 1;
+    if (targetIndex > childCountAfterRemoval + 1) return root;
+    const insertionIndex = targetIndex > sourceIndex ? targetIndex - 1 : targetIndex;
+    if (insertionIndex === sourceIndex) return root;
+
+    return updateNodeAtPath(root, sourceParentPath, (parent) => {
+      const newChildren = [...parent.children];
+      const [nodeToMove] = newChildren.splice(sourceIndex, 1);
+      newChildren.splice(Math.min(insertionIndex, newChildren.length), 0, nodeToMove);
+      return { ...parent, children: newChildren };
+    });
+  }
+
+  const nodeToMove = getNodeAtPath(root, sourcePath);
+  if (!nodeToMove) return root;
+
+  const rootWithDeleted = updateNodeAtPath(root, sourceParentPath, (parent) => {
+    const newChildren = [...parent.children];
+    newChildren.splice(sourceIndex, 1);
+    return { ...parent, children: newChildren };
+  });
+
+  const adjustedTargetParentPath = adjustTargetParentPathAfterRemoval(sourcePath, targetParentPath);
+
+  return updateNodeAtPath(rootWithDeleted, adjustedTargetParentPath, (parent) => {
+    if (targetIndex > parent.children.length) return parent;
+    const newChildren = [...parent.children];
+    newChildren.splice(targetIndex, 0, nodeToMove);
+    return { ...parent, children: newChildren };
+  });
+}
+
 export interface VisibleNodeInfo {
   node: OutlineNode;
   depth: number;

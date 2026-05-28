@@ -205,6 +205,62 @@ describe('documentStore', () => {
     expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(false)
   })
 
+  it('commits mind map layout changes into dirty undoable document state', async () => {
+    await loadFixtureDoc()
+
+    useDocumentStore.getState().commitMindMapLayout({
+      'node-1': { x: 120, y: 80 },
+      'node-2': { x: 260, y: 80 },
+    })
+
+    expect(useDocumentStore.getState().currentDoc?.version).toBe(2)
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toEqual({
+      'node-1': { x: 120, y: 80 },
+      'node-2': { x: 260, y: 80 },
+    })
+    expect(useDocumentStore.getState().isDirty).toBe(true)
+    expect(useDocumentStore.getState().canUndo).toBe(true)
+
+    useDocumentStore.getState().undo()
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toBeUndefined()
+
+    useDocumentStore.getState().redo()
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.['node-1']).toEqual({ x: 120, y: 80 })
+  })
+
+  it('saves mind map layout and upgrades the document version', async () => {
+    const doc = createDocument()
+    useDocumentStore.setState({
+      currentDoc: {
+        ...doc,
+        mindMapLayout: {
+          'node-1': { x: 12, y: 34 },
+        },
+      },
+      collapsedNodeIds: new Set<string>(),
+      currentFilePath: 'demo.siwei.json',
+      isDirty: true,
+    })
+    apiMock.saveDocument.mockResolvedValueOnce(undefined)
+    apiMock.addRecentDoc.mockResolvedValueOnce(undefined)
+
+    const saved = await useDocumentStore.getState().saveDoc()
+
+    expect(saved).toBe(true)
+    const savedDoc = apiMock.saveDocument.mock.calls[0][1]
+    expect(savedDoc.version).toBe(2)
+    expect(savedDoc.mindMapLayout).toEqual({ 'node-1': { x: 12, y: 34 } })
+    expect(useDocumentStore.getState().isDirty).toBe(false)
+  })
+
+  it('loads legacy documents without a mind map layout field', async () => {
+    await loadFixtureDoc({ ...createDocument(), version: 1 })
+
+    expect(useDocumentStore.getState().currentDoc?.version).toBe(1)
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toBeUndefined()
+    expect(useDocumentStore.getState().isDirty).toBe(false)
+  })
+
   it('inserts a strict sibling after an expanded node with children', async () => {
     await loadFixtureDoc()
 
@@ -290,11 +346,21 @@ describe('documentStore', () => {
     ])
   })
 
-  it('ignores drag moves across different levels', async () => {
+  it('moves a dragged node across different levels and records undo history', async () => {
     await loadFixtureDoc()
 
-    useDocumentStore.getState().moveNodeToSibling('node-1-1', 'node-2')
+    useDocumentStore.getState().moveNodeToParent('node-1-1', 'root', 1)
 
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual([
+      'node-1',
+      'node-1-1',
+      'node-2',
+    ])
+    expect(useDocumentStore.getState().currentDoc?.root.children[0].children.map((node) => node.id)).toEqual([
+    ])
+    expect(useDocumentStore.getState().canUndo).toBe(true)
+
+    useDocumentStore.getState().undo()
     expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual([
       'node-1',
       'node-2',
@@ -302,7 +368,6 @@ describe('documentStore', () => {
     expect(useDocumentStore.getState().currentDoc?.root.children[0].children.map((node) => node.id)).toEqual([
       'node-1-1',
     ])
-    expect(useDocumentStore.getState().canUndo).toBe(false)
   })
 
   it('merges repeated text changes in one focus session into one undo record', async () => {

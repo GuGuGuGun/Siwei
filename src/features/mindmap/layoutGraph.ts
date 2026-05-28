@@ -1,11 +1,17 @@
 import dagre from 'dagre'
 import { Node as FlowNode, Edge as FlowEdge, Position } from 'reactflow'
 import { GraphData } from './outlineToGraph'
+import { MindMapLayoutPosition } from '../../types/document'
+
+interface LayoutGraphOptions {
+  savedLayout?: Record<string, MindMapLayoutPosition>
+  preserveSavedPositions?: boolean
+}
 
 /**
  * Positions the React Flow elements in a Left-to-Right (LR) hierarchy using the Dagre layout engine.
  */
-export function layoutGraph(graphData: GraphData): GraphData {
+export function layoutGraph(graphData: GraphData, options: LayoutGraphOptions = {}): GraphData {
   const { nodes, edges } = graphData
   if (nodes.length === 0) return graphData
 
@@ -43,15 +49,18 @@ export function layoutGraph(graphData: GraphData): GraphData {
   // Map computed coordinates back to nodes
   const layoutedNodes = nodes.map((node) => {
     const dagreNode = dagreGraph.node(node.id)
+    const savedPosition = options.savedLayout?.[node.id]
     
     return {
       ...node,
       targetPosition: Position.Left,
       sourcePosition: Position.Right,
-      position: {
-        x: dagreNode.x - nodeWidth / 2,
-        y: dagreNode.y - nodeHeight / 2,
-      },
+      position: options.preserveSavedPositions && savedPosition
+        ? savedPosition
+        : {
+          x: dagreNode.x - nodeWidth / 2,
+          y: dagreNode.y - nodeHeight / 2,
+        },
     }
   })
 
