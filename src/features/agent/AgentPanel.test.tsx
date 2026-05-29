@@ -79,7 +79,7 @@ describe('AgentPanel', () => {
         }),
       )
     })
-    expect(screen.queryByText('消息已发送，等待 Pi sidecar 返回事件')).not.toBeInTheDocument()
+    expect(screen.queryByText('消息已发送，等待 Agent 返回事件')).not.toBeInTheDocument()
     expect(useAgentStore.getState().isSending).toBe(true)
   })
 
@@ -358,7 +358,7 @@ describe('AgentPanel', () => {
     })
   })
 
-  it('extracts legacy PiAgentCore operation objects from streamed text without rendering raw JSON', () => {
+  it('extracts legacy node-wrapped operation objects from streamed text without rendering raw JSON', () => {
     const doc = useDocumentStore.getState().currentDoc!
     const snapshotKey = JSON.stringify(doc)
     const rawOutput = [

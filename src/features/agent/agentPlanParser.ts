@@ -146,7 +146,7 @@ function normalizeLegacyConcatenatedObjects(
 
   if (objects.length === 0) return null
   const operations = objects.flatMap((object) => (
-    extractPiAgentCoreOperations(object, currentDoc)
+    extractLegacyNodeWrappedOperations(object, currentDoc)
   ))
   if (operations.length === 0) return null
 
@@ -207,8 +207,8 @@ function normalizeLegacyOperations(
   value: Record<string, unknown>,
   currentDoc: OutlineDocument,
 ): AgentOperation[] | null {
-  const piAgentCoreOperations = extractPiAgentCoreOperations(value, currentDoc)
-  if (piAgentCoreOperations.length > 0) return piAgentCoreOperations
+  const nodeWrappedOperations = extractLegacyNodeWrappedOperations(value, currentDoc)
+  if (nodeWrappedOperations.length > 0) return nodeWrappedOperations
 
   const insertedNodes = extractTreeLikeInsertedNodes(value)
   if (insertedNodes.length === 0) return null
@@ -221,24 +221,24 @@ function normalizeLegacyOperations(
   }))
 }
 
-function extractPiAgentCoreOperations(
+function extractLegacyNodeWrappedOperations(
   value: Record<string, unknown>,
   currentDoc: OutlineDocument,
 ): AgentOperation[] {
   if (isRecord(value.insertNode)) {
-    const operation = normalizePiAgentCoreInsertNode(value.insertNode, currentDoc, 0)
+    const operation = normalizeLegacyNodeWrappedInsert(value.insertNode, currentDoc, 0)
     return operation ? [operation] : []
   }
 
   return Object.values(value)
     .map((entry, index) => {
       if (!isRecord(entry) || !isRecord(entry.insertNode)) return null
-      return normalizePiAgentCoreInsertNode(entry.insertNode, currentDoc, index)
+      return normalizeLegacyNodeWrappedInsert(entry.insertNode, currentDoc, index)
     })
     .filter((operation): operation is AgentOperation => operation !== null)
 }
 
-function normalizePiAgentCoreInsertNode(
+function normalizeLegacyNodeWrappedInsert(
   insertNode: Record<string, unknown>,
   currentDoc: OutlineDocument,
   fallbackIndex: number,

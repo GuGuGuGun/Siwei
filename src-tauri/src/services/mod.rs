@@ -1,4 +1,5 @@
 pub mod agent_service;
+pub mod agent;
 pub mod agent_tools_service;
 pub mod file_service;
 pub mod library_service;

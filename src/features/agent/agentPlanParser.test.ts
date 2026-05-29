@@ -97,7 +97,7 @@ describe('agentPlanParser', () => {
     })
   })
 
-  it('converts PiAgentCore node-wrapped insert operations into preview plans', () => {
+  it('converts legacy node-wrapped insert operations into preview plans', () => {
     const doc = createDocument()
     const result = parseAgentResponseText(JSON.stringify({
       insertNode: {

@@ -3,18 +3,5 @@
   "identifier": "default",
   "description": "Default Siwei desktop permissions",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "dialog:default",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "binaries/siwei-pi-agent-sidecar",
-          "sidecar": true,
-          "args": true
-        }
-      ]
-    }
-  ]
+  "permissions": ["core:default", "dialog:default"]
 }
