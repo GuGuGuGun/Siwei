@@ -185,6 +185,7 @@ mod tests {
                     id: "toolu_1".to_string(),
                     name: "library.search".to_string(),
                     arguments: json!({ "query": "计划" }),
+                    extra_content: None,
                 }
             }]
         );

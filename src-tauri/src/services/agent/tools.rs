@@ -4,6 +4,10 @@ pub const TOOL_LIBRARY_LIST: &str = "library.list";
 pub const TOOL_LIBRARY_SEARCH: &str = "library.search";
 pub const TOOL_MINDMAP_INSERT_NODES: &str = "mindmap.insert_nodes";
 
+pub const OPENAI_TOOL_LIBRARY_LIST: &str = "library_list";
+pub const OPENAI_TOOL_LIBRARY_SEARCH: &str = "library_search";
+pub const OPENAI_TOOL_MINDMAP_INSERT_NODES: &str = "mindmap_insert_nodes";
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgentToolDefinition {
     pub name: &'static str,
@@ -84,4 +88,22 @@ pub fn siwei_tool_definitions() -> Vec<AgentToolDefinition> {
             }),
         },
     ]
+}
+
+pub fn openai_tool_name(name: &'static str) -> &'static str {
+    match name {
+        TOOL_LIBRARY_LIST => OPENAI_TOOL_LIBRARY_LIST,
+        TOOL_LIBRARY_SEARCH => OPENAI_TOOL_LIBRARY_SEARCH,
+        TOOL_MINDMAP_INSERT_NODES => OPENAI_TOOL_MINDMAP_INSERT_NODES,
+        _ => name,
+    }
+}
+
+pub fn canonical_tool_name(name: &str) -> &str {
+    match name {
+        OPENAI_TOOL_LIBRARY_LIST => TOOL_LIBRARY_LIST,
+        OPENAI_TOOL_LIBRARY_SEARCH => TOOL_LIBRARY_SEARCH,
+        OPENAI_TOOL_MINDMAP_INSERT_NODES => TOOL_MINDMAP_INSERT_NODES,
+        other => other,
+    }
 }

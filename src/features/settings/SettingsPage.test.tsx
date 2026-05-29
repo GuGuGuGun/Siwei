@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useLibraryStore } from '../library/libraryStore'
 import { useRecentStore } from '../document/recentStore'
+import { useWorkspaceStore } from '../../app/workspaceStore'
 import { useSettingsStore } from './settingsStore'
 import { SettingsPage } from './SettingsPage'
 
@@ -38,6 +39,7 @@ describe('SettingsPage', () => {
       isLoading: false,
       error: null,
     })
+    useWorkspaceStore.setState({ activeView: 'settings' })
   })
 
   it('updates auto-save and default view settings from controls', async () => {
@@ -79,5 +81,13 @@ describe('SettingsPage', () => {
     removeRecent.mockRestore()
     loadRecents.mockRestore()
     rebuildIndex.mockRestore()
+  })
+
+  it('returns to the editor when closing settings', () => {
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭设置' }))
+
+    expect(useWorkspaceStore.getState().activeView).toBe('editor')
   })
 })

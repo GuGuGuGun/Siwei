@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde_json::{json, Value};
 
 use crate::services::agent::protocol::{AgentStopReason, AgentStreamEvent, PartialToolCall};
-use crate::services::agent::tools::AgentToolDefinition;
+use crate::services::agent::tools::{openai_tool_name, AgentToolDefinition};
 
 #[derive(Debug, Default)]
 pub struct OpenAiStreamParser {
@@ -72,7 +72,7 @@ impl OpenAiStreamParser {
                     .and_then(|function| function.get("name"))
                     .and_then(Value::as_str)
                     .map(ToString::to_string);
-                if let Some(name) = name.clone() {
+                if let Some(name) = name.clone().filter(|name| !name.trim().is_empty()) {
                     entry.name = Some(name);
                 }
 
@@ -83,6 +83,10 @@ impl OpenAiStreamParser {
                     .map(ToString::to_string);
                 if let Some(delta) = arguments_delta.as_deref() {
                     entry.append_arguments(delta);
+                }
+
+                if let Some(extra_content) = tool_call.get("extra_content") {
+                    entry.extra_content = Some(extra_content.clone());
                 }
 
                 events.push(AgentStreamEvent::ToolCallDelta {
@@ -125,7 +129,7 @@ pub fn to_openai_tools(tools: &[AgentToolDefinition]) -> Vec<Value> {
             json!({
                 "type": "function",
                 "function": {
-                    "name": tool.name,
+                    "name": openai_tool_name(tool.name),
                     "description": tool.description,
                     "parameters": tool.input_schema,
                 }
@@ -138,7 +142,7 @@ pub fn to_openai_tools(tools: &[AgentToolDefinition]) -> Vec<Value> {
 mod tests {
     use serde_json::json;
 
-    use crate::services::agent::tools::{siwei_tool_definitions, TOOL_LIBRARY_SEARCH};
+    use crate::services::agent::tools::{openai_tool_name, siwei_tool_definitions, TOOL_LIBRARY_SEARCH};
     use crate::services::agent::protocol::{AgentStopReason, AgentStreamEvent};
 
     use super::{to_openai_tools, OpenAiStreamParser};
@@ -181,6 +185,7 @@ mod tests {
                     id: "call_1".to_string(),
                     name: "library.search".to_string(),
                     arguments: json!({ "query": "计划" }),
+                    extra_content: None,
                 }
             }
         );
@@ -203,14 +208,79 @@ mod tests {
     }
 
     #[test]
+    fn preserves_provider_tool_call_extra_content() {
+        let mut parser = OpenAiStreamParser::default();
+
+        let events = parser
+            .push_sse_data(
+                r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"mindmap.insert_nodes","arguments":"{\"documentId\":\"doc\"}"},"extra_content":{"google":{"thought_signature":"sig-1"}}}]},"finish_reason":"tool_calls"}]}"#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            events[1],
+            AgentStreamEvent::ToolCallDone {
+                call: crate::services::agent::protocol::AgentToolCall {
+                    id: "call_1".to_string(),
+                    name: "mindmap.insert_nodes".to_string(),
+                    arguments: json!({ "documentId": "doc" }),
+                    extra_content: Some(json!({
+                        "google": {
+                            "thought_signature": "sig-1"
+                        }
+                    })),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn infers_missing_mindmap_tool_name_from_arguments() {
+        let mut parser = OpenAiStreamParser::default();
+
+        let events = parser
+            .push_sse_data(
+                r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"","arguments":"{\"documentId\":\"doc\",\"snapshotKey\":\"snap\",\"parentNodeId\":\"root\",\"nodes\":[{\"text\":\"节点\"}]}"} }]},"finish_reason":"tool_calls"}]}"#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            events[1],
+            AgentStreamEvent::ToolCallDone {
+                call: crate::services::agent::protocol::AgentToolCall {
+                    id: "call_1".to_string(),
+                    name: "mindmap_insert_nodes".to_string(),
+                    arguments: json!({
+                        "documentId": "doc",
+                        "snapshotKey": "snap",
+                        "parentNodeId": "root",
+                        "nodes": [{ "text": "节点" }]
+                    }),
+                    extra_content: None,
+                }
+            }
+        );
+    }
+
+    #[test]
     fn converts_siwei_tools_to_openai_function_schema() {
         let tools = to_openai_tools(&siwei_tool_definitions());
         let library_search = tools
             .iter()
-            .find(|tool| tool["function"]["name"] == TOOL_LIBRARY_SEARCH)
+            .find(|tool| tool["function"]["name"] == openai_tool_name(TOOL_LIBRARY_SEARCH))
             .unwrap();
 
         assert_eq!(library_search["type"], "function");
+        assert_eq!(library_search["function"]["name"], "library_search");
         assert_eq!(library_search["function"]["parameters"]["required"], json!(["query"]));
+        assert!(tools.iter().all(|tool| {
+            tool["function"]["name"]
+                .as_str()
+                .is_some_and(|name| name.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'))
+        }));
+        assert!(tools.iter().any(|tool| {
+            tool["function"]["name"] == "mindmap_insert_nodes"
+                && tool["function"]["description"].as_str().is_some()
+        }));
     }
 }

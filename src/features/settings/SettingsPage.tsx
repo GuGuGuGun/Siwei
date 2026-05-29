@@ -1,7 +1,8 @@
 import React from 'react'
-import { Bot, Database, KeyRound, List, PanelLeftClose, PanelLeftOpen, RefreshCw, Save, Trash2 } from 'lucide-react'
+import { Bot, Database, KeyRound, List, PanelLeftClose, PanelLeftOpen, RefreshCw, Save, Trash2, X } from 'lucide-react'
 
 import { toast } from '../../components/common/Toast'
+import { useWorkspaceStore } from '../../app/workspaceStore'
 import { useRecentStore } from '../document/recentStore'
 import { useLibraryStore } from '../library/libraryStore'
 import { useSettingsStore } from './settingsStore'
@@ -18,6 +19,7 @@ export const SettingsPage: React.FC = () => {
   const startRefreshJob = useLibraryStore((s) => s.startRefreshJob)
   const removeMissingDocs = useLibraryStore((s) => s.removeMissingDocs)
   const rebuildIndex = useLibraryStore((s) => s.rebuildIndex)
+  const setActiveView = useWorkspaceStore((s) => s.setActiveView)
   const [apiKey, setApiKey] = React.useState('')
 
   const saveSetting = async (patch: Parameters<typeof updateSettings>[0]) => {
@@ -77,6 +79,15 @@ export const SettingsPage: React.FC = () => {
           <h1 className="text-sm font-semibold">设置</h1>
           {isSaving && <RefreshCw size={13} className="animate-spin text-zinc-400" />}
         </div>
+        <button
+          type="button"
+          onClick={() => setActiveView('editor')}
+          aria-label="关闭设置"
+          title="关闭设置"
+          className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-300"
+        >
+          <X size={16} />
+        </button>
       </header>
 
       <main className="flex-1 overflow-y-auto px-6 py-5">

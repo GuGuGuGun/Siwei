@@ -15,6 +15,8 @@ pub struct AgentToolCall {
     pub id: String,
     pub name: String,
     pub arguments: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_content: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -49,6 +51,7 @@ pub struct PartialToolCall {
     pub id: String,
     pub name: Option<String>,
     pub arguments_json: String,
+    pub extra_content: Option<Value>,
 }
 
 impl PartialToolCall {
@@ -57,6 +60,7 @@ impl PartialToolCall {
             id,
             name: None,
             arguments_json: String::new(),
+            extra_content: None,
         }
     }
 
@@ -65,21 +69,43 @@ impl PartialToolCall {
     }
 
     pub fn finish(self) -> Result<AgentToolCall, String> {
-        let name = self
-            .name
-            .ok_or_else(|| format!("工具调用 {} 缺少名称", self.id))?;
         let arguments = if self.arguments_json.trim().is_empty() {
             Value::Object(Default::default())
         } else {
             serde_json::from_str(&self.arguments_json).map_err(|error| {
-                format!("工具调用 {name} 参数不是合法 JSON: {error}")
+                format!("工具调用 {} 参数不是合法 JSON: {error}", self.id)
             })?
         };
+        let name = self
+            .name
+            .filter(|name| !name.trim().is_empty())
+            .or_else(|| infer_tool_name_from_arguments(&arguments).map(ToString::to_string))
+            .ok_or_else(|| format!("工具调用 {} 缺少名称", self.id))?;
 
         Ok(AgentToolCall {
             id: self.id,
             name,
             arguments,
+            extra_content: self.extra_content,
         })
     }
+}
+
+fn infer_tool_name_from_arguments(arguments: &Value) -> Option<&'static str> {
+    let object = arguments.as_object()?;
+    if object.contains_key("nodes")
+        && object.contains_key("documentId")
+        && object.contains_key("snapshotKey")
+        && object.contains_key("parentNodeId")
+    {
+        return Some("mindmap_insert_nodes");
+    }
+    if object.contains_key("query") {
+        return Some("library_search");
+    }
+    if object.contains_key("limit") {
+        return Some("library_list");
+    }
+
+    None
 }

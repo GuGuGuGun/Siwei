@@ -281,7 +281,12 @@ pub fn handle_tool_request(app: &tauri::AppHandle, id: String, method: String, p
                 })
             }),
         _ => Err(AppError::Validation(format!(
-            "不支持的 Agent 工具方法: {method}"
+            "不支持的 Agent 工具方法: {}",
+            if method.trim().is_empty() {
+                "<空>"
+            } else {
+                method.as_str()
+            }
         ))),
     };
 

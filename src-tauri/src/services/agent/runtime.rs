@@ -12,7 +12,7 @@ use crate::{
                 openai_compatible::{to_openai_tools, OpenAiStreamParser},
             },
             protocol::{AgentStreamEvent, AgentToolCall},
-            tools::siwei_tool_definitions,
+            tools::{canonical_tool_name, siwei_tool_definitions},
         },
         agent_service,
     },
@@ -238,7 +238,8 @@ fn collect_and_emit_stream_event(
 }
 
 fn execute_tool_call(app: &tauri::AppHandle, call: &AgentToolCall) -> AppResult<Value> {
-    let method = match call.name.as_str() {
+    let canonical_name = canonical_tool_name(&call.name);
+    let method = match canonical_name {
         "mindmap.insert_nodes" => "mindmap.insert_nodes",
         "library.list" => "library.list",
         "library.search" => "library.search",
@@ -271,18 +272,26 @@ fn openai_assistant_tool_call_message(tool_calls: &[AgentToolCall]) -> Value {
         "content": null,
         "tool_calls": tool_calls
             .iter()
-            .map(|call| {
-                json!({
-                    "id": call.id,
-                    "type": "function",
-                    "function": {
-                        "name": call.name,
-                        "arguments": call.arguments.to_string(),
-                    }
-                })
-            })
+            .map(openai_tool_call_history_item)
             .collect::<Vec<_>>(),
     })
+}
+
+fn openai_tool_call_history_item(call: &AgentToolCall) -> Value {
+    let mut item = json!({
+        "id": call.id,
+        "type": "function",
+        "function": {
+            "name": call.name,
+            "arguments": call.arguments.to_string(),
+        }
+    });
+
+    if let Some(extra_content) = call.extra_content.clone() {
+        item["extra_content"] = extra_content;
+    }
+
+    item
 }
 
 fn openai_tool_result_message(call: &AgentToolCall, result: Value) -> Value {
@@ -300,8 +309,8 @@ fn claude_assistant_tool_call_message(tool_calls: &[AgentToolCall]) -> Value {
             .iter()
             .map(|call| {
                 json!({
-                    "type": "tool_use",
                     "id": call.id,
+                    "type": "tool_use",
                     "name": call.name,
                     "input": call.arguments,
                 })
@@ -442,6 +451,7 @@ mod tests {
             id: "call_1".to_string(),
             name: "library.search".to_string(),
             arguments: json!({ "query": "计划" }),
+            extra_content: None,
         };
 
         let assistant_message = openai_assistant_tool_call_message(std::slice::from_ref(&call));
@@ -459,11 +469,33 @@ mod tests {
     }
 
     #[test]
+    fn keeps_openai_provider_extra_content_in_tool_call_history() {
+        let call = AgentToolCall {
+            id: "call_1".to_string(),
+            name: "mindmap.insert_nodes".to_string(),
+            arguments: json!({ "documentId": "doc" }),
+            extra_content: Some(json!({
+                "google": {
+                    "thought_signature": "sig-1"
+                }
+            })),
+        };
+
+        let assistant_message = openai_assistant_tool_call_message(&[call]);
+
+        assert_eq!(
+            assistant_message["tool_calls"][0]["extra_content"]["google"]["thought_signature"],
+            "sig-1"
+        );
+    }
+
+    #[test]
     fn builds_claude_tool_use_message_for_follow_up_round() {
         let call = AgentToolCall {
             id: "toolu_1".to_string(),
             name: "library.search".to_string(),
             arguments: json!({ "query": "计划" }),
+            extra_content: None,
         };
 
         let assistant_message = claude_assistant_tool_call_message(&[call]);
