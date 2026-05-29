@@ -5,6 +5,25 @@ import { useDocumentStore } from '../features/document/documentStore'
 import { useSettingsStore } from '../features/settings/settingsStore'
 import { useWorkspaceStore } from './workspaceStore'
 import { createDocument } from '../test/fixtures'
+import type { AppSettings } from '../types/settings'
+import * as api from '../services/siweiApi'
+
+const appSettings: AppSettings = {
+  autoSaveEnabled: true,
+  autoSaveIntervalMs: 1500,
+  defaultViewMode: 'mindmap',
+  sidebarCollapsed: false,
+  theme: 'system',
+  focusMode: false,
+  agent: {
+    enabled: false,
+    provider: 'openai-compatible',
+    model: 'gpt-4.1',
+    baseUrl: 'https://api.openai.com/v1',
+    thinkingLevel: 'medium',
+    contextScope: 'currentDocument',
+  },
+}
 
 vi.mock('../services/siweiApi', () => ({
   newDocument: vi.fn(() => Promise.resolve(createDocument())),
@@ -21,20 +40,7 @@ vi.mock('../services/siweiApi', () => ({
   openFileDialog: vi.fn(() => Promise.resolve(null)),
   saveFileDialog: vi.fn(() => Promise.resolve(null)),
   searchDocument: vi.fn(() => Promise.resolve([])),
-  getSettings: vi.fn(() => Promise.resolve({
-    autoSaveEnabled: true,
-    autoSaveIntervalMs: 1500,
-    defaultViewMode: 'mindmap',
-    sidebarCollapsed: false,
-    agent: {
-      enabled: false,
-      provider: 'openai-compatible',
-      model: 'gpt-4.1',
-      baseUrl: 'https://api.openai.com/v1',
-      thinkingLevel: 'medium',
-      contextScope: 'currentDocument',
-    },
-  })),
+  getSettings: vi.fn(() => Promise.resolve(appSettings)),
   updateSettings: vi.fn((settings) => Promise.resolve(settings)),
   agentStartSession: vi.fn(),
   agentSendMessage: vi.fn(),
@@ -79,6 +85,7 @@ vi.mock('reactflow', async () => {
 
 describe('App', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     useDocumentStore.setState({
       currentDoc: createDocument(),
       viewMode: 'mindmap',
@@ -99,20 +106,7 @@ describe('App', () => {
     })
     useWorkspaceStore.setState({ activeView: 'editor' })
     useSettingsStore.setState({
-      settings: {
-        autoSaveEnabled: true,
-        autoSaveIntervalMs: 1500,
-        defaultViewMode: 'mindmap',
-        sidebarCollapsed: false,
-        agent: {
-          enabled: false,
-          provider: 'openai-compatible',
-          model: 'gpt-4.1',
-          baseUrl: 'https://api.openai.com/v1',
-          thinkingLevel: 'medium',
-          contextScope: 'currentDocument',
-        },
-      },
+      settings: appSettings,
       isLoaded: true,
       isSaving: false,
       error: null,
@@ -132,5 +126,56 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /导出 Markdown/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /导出导图图片/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /导出导图 PDF/ })).toBeInTheDocument()
+  })
+
+  it('creates the first document without waiting for settings loading', async () => {
+    let resolveSettings: (settings: AppSettings) => void = () => {}
+    vi.mocked(api.getSettings).mockReturnValueOnce(new Promise((resolve) => {
+      resolveSettings = resolve
+    }))
+    const newDocument = vi.mocked(api.newDocument)
+    useDocumentStore.setState({ currentDoc: null })
+    useSettingsStore.setState({
+      settings: appSettings,
+      isLoaded: false,
+      isSaving: false,
+      error: null,
+    })
+
+    render(<App />)
+
+    await waitFor(() => expect(newDocument).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      resolveSettings(appSettings)
+    })
+  })
+
+  it('shows an exit control while focus mode is active', async () => {
+    const updateSettings = vi.spyOn(useSettingsStore.getState(), 'updateSettings')
+      .mockImplementation(async (patch) => {
+        useSettingsStore.setState((state) => ({ settings: { ...state.settings, ...patch } }))
+      })
+    useSettingsStore.setState({
+      settings: { ...appSettings, focusMode: true },
+      isLoaded: true,
+      isSaving: false,
+      error: null,
+    })
+
+    render(<App />)
+
+    const exitButton = await screen.findByRole('button', { name: '退出专注模式' })
+    expect(screen.getByRole('button', { name: '大纲' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '思维导图' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '分屏' })).toBeInTheDocument()
+
+    fireEvent.click(exitButton)
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalledWith({ focusMode: false })
+    })
+
+    updateSettings.mockRestore()
   })
 })

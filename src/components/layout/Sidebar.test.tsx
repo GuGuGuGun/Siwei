@@ -4,6 +4,24 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWorkspaceStore } from '../../app/workspaceStore'
 import { useSettingsStore } from '../../features/settings/settingsStore'
 import { Sidebar } from './Sidebar'
+import type { AppSettings } from '../../types/settings'
+
+const sidebarSettings: AppSettings = {
+  autoSaveEnabled: true,
+  autoSaveIntervalMs: 1500,
+  defaultViewMode: 'outline',
+  sidebarCollapsed: false,
+  theme: 'system',
+  focusMode: false,
+  agent: {
+    enabled: false,
+    provider: 'openai-compatible',
+    model: 'gpt-4.1',
+    baseUrl: 'https://api.openai.com/v1',
+    thinkingLevel: 'medium',
+    contextScope: 'currentDocument',
+  },
+}
 
 vi.mock('../../services/siweiApi', () => ({
   getRecentDocs: vi.fn(async () => []),
@@ -15,20 +33,7 @@ describe('Sidebar', () => {
   beforeEach(() => {
     useWorkspaceStore.setState({ activeView: 'editor' })
     useSettingsStore.setState({
-      settings: {
-        autoSaveEnabled: true,
-        autoSaveIntervalMs: 1500,
-        defaultViewMode: 'outline',
-        sidebarCollapsed: false,
-        agent: {
-          enabled: false,
-          provider: 'openai-compatible',
-          model: 'gpt-4.1',
-          baseUrl: 'https://api.openai.com/v1',
-          thinkingLevel: 'medium',
-          contextScope: 'currentDocument',
-        },
-      },
+      settings: sidebarSettings,
       isLoaded: true,
       isSaving: false,
       error: null,

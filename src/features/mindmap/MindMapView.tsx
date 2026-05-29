@@ -571,6 +571,7 @@ export const MindMapView: React.FC = () => {
         fitViewOptions={{ padding: 0.25 }}
         minZoom={0.1}
         maxZoom={2}
+        proOptions={{ hideAttribution: true }}
         nodesDraggable
         nodesConnectable={false}
         elementsSelectable
@@ -578,10 +579,23 @@ export const MindMapView: React.FC = () => {
       >
         <Controls className="!bg-[#FAF8F4] !border-amber-900/10 !shadow-fabric [&>button]:!border-amber-900/5 [&>button]:hover:!bg-[#EFECE3]" />
         <MiniMap
-          style={{ background: '#FAF8F4', border: '1px dashed rgba(139, 90, 43, 0.2)', borderRadius: '12px' }}
+          style={{
+            width: 132,
+            height: 92,
+            background: 'rgba(250, 248, 244, 0.72)',
+            border: '1px dashed rgba(139, 90, 43, 0.16)',
+            borderRadius: '10px',
+            boxShadow: '0 8px 22px rgba(0, 0, 0, 0.04)',
+            overflow: 'hidden',
+          }}
+          position="bottom-right"
           nodeColor="#FAF6EC"
-          maskColor="rgba(240, 235, 220, 0.4)"
-          className="!bottom-4 !right-4"
+          nodeStrokeColor="rgba(139, 90, 43, 0.18)"
+          nodeStrokeWidth={1}
+          nodeBorderRadius={6}
+          maskColor="rgba(240, 235, 220, 0.24)"
+          maskStrokeColor="rgba(139, 90, 43, 0.08)"
+          className="siwei-mindmap-minimap opacity-60 transition-opacity hover:opacity-95"
         />
         <Background color="#FAF8F4" gap={16} size={1} />
         </ReactFlow>

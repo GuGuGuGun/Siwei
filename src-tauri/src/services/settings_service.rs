@@ -62,7 +62,7 @@ fn settings_path(app_data_dir: &Path) -> PathBuf {
 mod tests {
     use tempfile::tempdir;
 
-    use crate::models::{settings::DefaultViewMode, AppSettings};
+    use crate::models::{settings::{DefaultViewMode, ThemeMode}, AppSettings};
 
     use super::{get_settings, update_settings};
 
@@ -83,12 +83,43 @@ mod tests {
             auto_save_interval_ms: 2_500,
             default_view_mode: DefaultViewMode::Split,
             sidebar_collapsed: true,
+            theme: ThemeMode::Dark,
+            focus_mode: true,
             agent: Default::default(),
         };
 
         update_settings(dir.path(), settings.clone()).unwrap();
 
         assert_eq!(get_settings(dir.path()).unwrap(), settings);
+    }
+
+    #[test]
+    fn reads_legacy_settings_without_theme_fields() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.json"),
+            r#"{
+              "autoSaveEnabled": false,
+              "autoSaveIntervalMs": 2500,
+              "defaultViewMode": "split",
+              "sidebarCollapsed": true,
+              "agent": {
+                "enabled": false,
+                "provider": "openai-compatible",
+                "model": "gpt-4.1",
+                "baseUrl": "https://api.openai.com/v1",
+                "thinkingLevel": "medium",
+                "contextScope": "currentDocument"
+              }
+            }"#,
+        )
+        .unwrap();
+
+        let settings = get_settings(dir.path()).unwrap();
+
+        assert_eq!(settings.default_view_mode, DefaultViewMode::Split);
+        assert_eq!(settings.theme, ThemeMode::System);
+        assert!(!settings.focus_mode);
     }
 
     #[test]

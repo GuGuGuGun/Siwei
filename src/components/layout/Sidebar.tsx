@@ -104,7 +104,7 @@ export const Sidebar: React.FC = () => {
 
   return (
     <aside
-      className={`relative flex flex-col bg-canvas-sidebar text-zinc-600 transition-all duration-300 shadow-[1px_0_10px_rgba(0,0,0,0.02)] ${
+      className={`relative flex h-full shrink-0 flex-col bg-canvas-sidebar text-zinc-600 shadow-[1px_0_10px_rgba(0,0,0,0.02)] transition-all duration-300 dark:border-r dark:border-zinc-800/60 dark:bg-zinc-950 dark:text-zinc-400 ${
         isCollapsed ? 'w-16' : 'w-64'
       }`}
     >
@@ -112,16 +112,16 @@ export const Sidebar: React.FC = () => {
       <div className="flex h-12 items-center justify-between px-4 shrink-0 mt-2 mb-2">
         {!isCollapsed && (
           <div className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-zinc-900 text-xs font-bold text-white shadow-sm">
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-zinc-900 dark:bg-zinc-100 text-xs font-bold text-white dark:text-zinc-900 shadow-sm">
               S
             </div>
-            <span className="font-sans text-sm font-semibold tracking-wide text-zinc-800">
+            <span className="font-sans text-sm font-semibold tracking-wide text-zinc-800 dark:text-zinc-200">
               Siwei
             </span>
           </div>
         )}
         {isCollapsed && (
-          <div className="mx-auto flex h-6 w-6 items-center justify-center rounded-md bg-zinc-900 text-xs font-bold text-white shadow-sm">
+          <div className="mx-auto flex h-6 w-6 items-center justify-center rounded-md bg-zinc-900 dark:bg-zinc-100 text-xs font-bold text-white dark:text-zinc-900 shadow-sm">
             S
           </div>
         )}
@@ -131,7 +131,8 @@ export const Sidebar: React.FC = () => {
               toast.error(`侧栏设置保存失败: ${String(error)}`)
             })
           }}
-          className="absolute -right-3 top-4 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-400 hover:text-zinc-800 transition focus:outline-none shadow-sm"
+          className="absolute -right-3 top-4 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-400 shadow-sm transition hover:text-zinc-800 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:hover:text-zinc-200"
+          title={isCollapsed ? '展开侧栏' : '收起侧栏'}
         >
           {isCollapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
         </button>
@@ -141,18 +142,18 @@ export const Sidebar: React.FC = () => {
       <div className="flex flex-col gap-1.5 px-3 mb-4">
         <button
           onClick={handleNewDoc}
-          className={`flex h-8 items-center justify-center gap-2 rounded-md bg-zinc-900 font-medium text-xs tracking-wide text-white hover:bg-zinc-800 transition shadow-sm ${
+          className={`flex h-8 items-center justify-center gap-2 rounded-md bg-zinc-900 dark:bg-zinc-100 font-medium text-xs tracking-wide text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-white transition shadow-sm ${
             isCollapsed ? 'px-0 w-8 mx-auto' : 'px-4 w-full'
           }`}
-          title="新建文档"
+          title={isCollapsed ? '新建文档' : undefined}
         >
           <Plus size={14} />
           {!isCollapsed && <span>新建文档</span>}
         </button>
         <button
           onClick={handleOpenDoc}
-          className={`flex h-8 items-center justify-center gap-2 rounded-md border border-zinc-200/60 bg-transparent font-medium text-xs tracking-wide text-zinc-600 hover:bg-zinc-200/50 hover:text-zinc-900 transition ${
-            isCollapsed ? 'px-0 w-8 mx-auto border-none hover:bg-zinc-200/80' : 'px-4 w-full'
+          className={`flex h-8 items-center justify-center gap-2 rounded-md border border-zinc-200/60 dark:border-zinc-800/80 bg-transparent font-medium text-xs tracking-wide text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 hover:text-zinc-900 dark:hover:text-zinc-200 transition ${
+            isCollapsed ? 'px-0 w-8 mx-auto border-none hover:bg-zinc-200/80 dark:hover:bg-zinc-800' : 'px-4 w-full'
           }`}
           title="打开本地大纲"
         >
@@ -166,9 +167,9 @@ export const Sidebar: React.FC = () => {
           }}
           className={`flex h-8 items-center justify-center gap-2 rounded-md border font-medium text-xs tracking-wide transition ${
             activeWorkspaceView === 'library'
-              ? 'border-zinc-300 bg-white text-zinc-900 shadow-sm'
-              : 'border-zinc-200/60 bg-transparent text-zinc-600 hover:bg-zinc-200/50 hover:text-zinc-900'
-          } ${isCollapsed ? 'px-0 w-8 mx-auto border-none hover:bg-zinc-200/80' : 'px-4 w-full'}`}
+              ? 'border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-sm'
+              : 'border-zinc-200/60 dark:border-zinc-800/80 bg-transparent text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 hover:text-zinc-900 dark:hover:text-zinc-200'
+          } ${isCollapsed ? 'px-0 w-8 mx-auto border-none hover:bg-zinc-200/80 dark:hover:bg-zinc-800' : 'px-4 w-full'}`}
           title="文档库"
         >
           <Database size={14} className="text-zinc-500" />
@@ -178,9 +179,9 @@ export const Sidebar: React.FC = () => {
           onClick={() => setWorkspaceView('settings')}
           className={`flex h-8 items-center justify-center gap-2 rounded-md border font-medium text-xs tracking-wide transition ${
             activeWorkspaceView === 'settings'
-              ? 'border-zinc-300 bg-white text-zinc-900 shadow-sm'
-              : 'border-zinc-200/60 bg-transparent text-zinc-600 hover:bg-zinc-200/50 hover:text-zinc-900'
-          } ${isCollapsed ? 'px-0 w-8 mx-auto border-none hover:bg-zinc-200/80' : 'px-4 w-full'}`}
+              ? 'border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-sm'
+              : 'border-zinc-200/60 dark:border-zinc-800/80 bg-transparent text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 hover:text-zinc-900 dark:hover:text-zinc-200'
+          } ${isCollapsed ? 'px-0 w-8 mx-auto border-none hover:bg-zinc-200/80 dark:hover:bg-zinc-800' : 'px-4 w-full'}`}
           title="设置"
         >
           <Settings size={14} className="text-zinc-500" />
@@ -197,7 +198,7 @@ export const Sidebar: React.FC = () => {
               <button
                 type="button"
                 onClick={handleClearInvalidRecents}
-                className="rounded px-1.5 py-0.5 text-[10px] font-medium text-rose-500 hover:bg-rose-50"
+                className="rounded px-1.5 py-0.5 text-[10px] font-medium text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20"
               >
                 清理失效
               </button>
@@ -214,10 +215,10 @@ export const Sidebar: React.FC = () => {
                 key={doc.path}
                 className={`group relative flex items-center justify-between rounded-md px-2.5 py-1.5 transition-colors ${
                   isInvalid
-                    ? 'bg-rose-50/70 text-rose-500'
+                    ? 'bg-rose-50/70 dark:bg-rose-900/20 text-rose-500'
                     : isActive
-                    ? 'bg-zinc-200/80 text-zinc-900'
-                    : 'text-zinc-500 hover:bg-zinc-200/50 hover:text-zinc-800'
+                    ? 'bg-zinc-200/80 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-100'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 hover:text-zinc-800 dark:hover:text-zinc-200'
                 } ${isCollapsed ? 'justify-center cursor-pointer px-0' : ''}`}
                 onClick={() => isCollapsed && handleSelectRecent(doc.path)}
                 title={doc.path}
@@ -227,7 +228,7 @@ export const Sidebar: React.FC = () => {
                     onClick={() => handleSelectRecent(doc.path)}
                     className="flex flex-1 items-center gap-2 overflow-hidden text-left"
                   >
-                    <FileText size={14} className={`shrink-0 ${isActive ? 'text-zinc-700' : 'text-zinc-400'}`} />
+                    <FileText size={14} className={`shrink-0 ${isActive ? 'text-zinc-700 dark:text-zinc-300' : 'text-zinc-400'}`} />
                     <div className="flex flex-col min-w-0">
                       <span className={`truncate text-[13px] leading-tight ${isActive ? 'font-medium' : 'font-normal'}`}>
                         {doc.title || '未命名'}
@@ -238,7 +239,7 @@ export const Sidebar: React.FC = () => {
                     </div>
                   </button>
                 ) : (
-                  <FileText size={16} className={isActive ? 'text-zinc-800' : 'text-zinc-400'} />
+                  <FileText size={16} className={isActive ? 'text-zinc-800 dark:text-zinc-200' : 'text-zinc-400 dark:text-zinc-500'} />
                 )}
 
                 {/* Delete button */}
@@ -249,7 +250,7 @@ export const Sidebar: React.FC = () => {
                       void removeRecent(doc.path)
                       toast.info('已移除记录')
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-zinc-400 hover:bg-white hover:text-rose-500 transition shadow-sm"
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-zinc-400 hover:bg-white dark:hover:bg-zinc-700 hover:text-rose-500 transition shadow-sm"
                   >
                     <Trash2 size={12} />
                   </button>

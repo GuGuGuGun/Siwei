@@ -7,11 +7,17 @@
 /* 1. Linen Canvas Texture - Softened for Notion feel */
 .bg-linen {
   background-color: #FCFCFB;
-  background-image: 
+  background-image:
     linear-gradient(90deg, rgba(0, 0, 0, 0.015) 1px, transparent 1px),
     linear-gradient(rgba(0, 0, 0, 0.015) 1px, transparent 1px);
   background-size: 8px 8px;
   position: relative;
+}
+.dark .bg-linen {
+  background-color: #121214;
+  background-image:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px);
 }
 
 /* 2. Light Canvas Sidebar Texture (Replaces Dark Sidebar) */
@@ -23,6 +29,13 @@
   background-size: 6px 6px;
   background-position: 0 0, 3px 3px;
   border-right: 1px solid rgba(0, 0, 0, 0.04);
+}
+.dark .bg-canvas-sidebar {
+  background-color: #18181B;
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.01) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.01) 75%),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.01) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.01) 75%);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 /* 3. Single-Stitch Dashed Divider - Refined */
@@ -42,10 +55,17 @@
 .bg-washed-paper {
   background-color: #FFFFFF;
   border: 1px solid rgba(0, 0, 0, 0.05);
-  box-shadow: 
+  box-shadow:
     0 4px 20px -2px rgba(0, 0, 0, 0.04),
     0 2px 6px -1px rgba(0, 0, 0, 0.02);
   border-radius: 12px;
+}
+.dark .bg-washed-paper {
+  background-color: #1E1E22;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow:
+    0 4px 20px -2px rgba(0, 0, 0, 0.2),
+    0 2px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
 /* 5. Custom Buttons - Notion Ghost Button Style */
@@ -55,14 +75,24 @@
   border: 1px solid transparent;
   transition: all 0.15s ease-out;
 }
+.dark .btn-patch-light {
+  color: #A1A1AA;
+}
 .btn-patch-light:hover {
   background-color: rgba(0, 0, 0, 0.04);
   color: #18181B; /* zinc-900 */
   transform: translateY(-0.5px);
 }
+.dark .btn-patch-light:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #F4F4F5;
+}
 .btn-patch-light:active {
   transform: translateY(0);
   background-color: rgba(0, 0, 0, 0.06);
+}
+.dark .btn-patch-light:active {
+  background-color: rgba(255, 255, 255, 0.15);
 }
 
 .btn-patch-dark {
@@ -136,4 +166,57 @@
 .react-flow__edge:hover .react-flow__edge-path {
   stroke: #52525B !important; /* darker zinc on hover */
   stroke-width: 2px !important;
+}
+.dark .react-flow__edge:hover .react-flow__edge-path {
+  stroke: #D4D4D8 !important;
+}
+
+.siwei-mindmap-minimap {
+  right: 16px !important;
+  bottom: 18px !important;
+}
+.siwei-mindmap-minimap svg {
+  display: block;
+  width: 132px !important;
+  height: 92px !important;
+}
+.react-flow__attribution {
+  display: none !important;
+}
+.dark .siwei-mindmap-minimap {
+  background: rgba(24, 24, 27, 0.72) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Panel Resizer */
+.PanelResizeHandle {
+  width: 8px;
+  position: relative;
+  transition: background-color 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+}
+.PanelResizeHandle::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 0;
+  bottom: 0;
+  background-color: rgba(0,0,0,0.05);
+  transition: background-color 0.2s ease;
+}
+.dark .PanelResizeHandle::after {
+  background-color: rgba(255,255,255,0.05);
+}
+.PanelResizeHandle[data-resize-handle-state="hover"]::after,
+.PanelResizeHandle[data-resize-handle-state="drag"]::after {
+  background-color: rgba(0,0,0,0.15);
+}
+.dark .PanelResizeHandle[data-resize-handle-state="hover"]::after,
+.dark .PanelResizeHandle[data-resize-handle-state="drag"]::after {
+  background-color: rgba(255,255,255,0.15);
 }

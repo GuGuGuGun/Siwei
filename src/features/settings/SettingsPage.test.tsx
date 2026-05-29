@@ -6,25 +6,30 @@ import { useRecentStore } from '../document/recentStore'
 import { useWorkspaceStore } from '../../app/workspaceStore'
 import { useSettingsStore } from './settingsStore'
 import { SettingsPage } from './SettingsPage'
+import type { AppSettings } from '../../types/settings'
+
+const baseSettings: AppSettings = {
+  autoSaveEnabled: true,
+  autoSaveIntervalMs: 1500,
+  defaultViewMode: 'outline',
+  sidebarCollapsed: false,
+  theme: 'system',
+  focusMode: false,
+  agent: {
+    enabled: false,
+    provider: 'openai-compatible',
+    model: 'gpt-4.1',
+    baseUrl: 'https://api.openai.com/v1',
+    thinkingLevel: 'medium',
+    contextScope: 'currentDocument',
+  },
+}
 
 describe('SettingsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useSettingsStore.setState({
-      settings: {
-        autoSaveEnabled: true,
-        autoSaveIntervalMs: 1500,
-        defaultViewMode: 'outline',
-        sidebarCollapsed: false,
-        agent: {
-          enabled: false,
-          provider: 'openai-compatible',
-          model: 'gpt-4.1',
-          baseUrl: 'https://api.openai.com/v1',
-          thinkingLevel: 'medium',
-          contextScope: 'currentDocument',
-        },
-      },
+      settings: baseSettings,
       isLoaded: true,
       isSaving: false,
       error: null,
@@ -56,6 +61,25 @@ describe('SettingsPage', () => {
     await waitFor(() => {
       expect(updateSettings).toHaveBeenCalledWith({ autoSaveEnabled: false })
       expect(updateSettings).toHaveBeenCalledWith({ defaultViewMode: 'mindmap' })
+    })
+
+    updateSettings.mockRestore()
+  })
+
+  it('updates theme and focus mode from interface controls', async () => {
+    const updateSettings = vi.spyOn(useSettingsStore.getState(), 'updateSettings')
+      .mockImplementation(async (patch) => {
+        useSettingsStore.setState((state) => ({ settings: { ...state.settings, ...patch } }))
+      })
+
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: '深色' }))
+    fireEvent.click(screen.getByRole('button', { name: '开启' }))
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalledWith({ theme: 'dark' })
+      expect(updateSettings).toHaveBeenCalledWith({ focusMode: true })
     })
 
     updateSettings.mockRestore()

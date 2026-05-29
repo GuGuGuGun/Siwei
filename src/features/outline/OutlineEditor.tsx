@@ -69,9 +69,12 @@ export const OutlineEditor: React.FC = () => {
 
   if (!currentDoc) {
     return (
-      <div className="flex h-full flex-col items-center justify-center text-zinc-400 bg-linen">
-        <FileText size={42} className="text-zinc-300 mb-3" />
-        <p className="text-xs font-semibold font-mono tracking-wider">请选择一个织物卡进行编辑</p>
+      <div className="flex h-full flex-col items-center justify-center text-zinc-400 dark:text-zinc-600 bg-linen dark:bg-zinc-950">
+        <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-zinc-100 dark:bg-zinc-900/50 mb-4 shadow-sm border border-zinc-200/50 dark:border-zinc-800/50">
+          <FileText size={28} className="text-zinc-400 dark:text-zinc-500" />
+        </div>
+        <p className="text-sm font-medium tracking-wide text-zinc-500 dark:text-zinc-400 mb-1">未选择任何织物</p>
+        <p className="text-[11px] text-zinc-400 dark:text-zinc-500 max-w-[200px] text-center leading-relaxed">从左侧边栏选择、导入或新建一个文件以开始缝合思绪</p>
       </div>
     )
   }
@@ -89,18 +92,18 @@ export const OutlineEditor: React.FC = () => {
 
   return (
     <div
-      className="flex h-full flex-col bg-linen px-12 py-8 overflow-y-auto select-text cursor-text relative"
+      className="flex h-full flex-col bg-linen dark:bg-zinc-950 px-12 py-8 overflow-y-auto select-text cursor-text relative"
       onClick={handleEmptyClick}
     >
       {/* Title Header: Stitched Fabric Tag look */}
-      <div className="mb-8 border-b border-dashed border-amber-900/20 pb-4 shrink-0">
+      <div className="mb-8 border-b border-dashed border-amber-900/20 dark:border-zinc-800 pb-4 shrink-0">
         <input
           type="text"
           value={currentDoc.title || ''}
           onFocus={() => beginTextEditSession(currentDoc.root.id)}
           onBlur={() => commitTextEditSession(currentDoc.root.id)}
           onChange={(e) => updateNodeText(currentDoc.root.id, e.target.value)}
-          className="w-full bg-transparent text-2xl font-bold text-zinc-900 outline-none border-none p-0 focus:ring-0 placeholder-zinc-300 tracking-wide font-sans"
+          className="w-full bg-transparent text-2xl font-bold text-zinc-900 dark:text-zinc-100 outline-none border-none p-0 focus:ring-0 placeholder-zinc-300 dark:placeholder-zinc-700 tracking-wide font-sans"
           placeholder="未命名织物"
         />
       </div>
@@ -143,10 +146,12 @@ export const OutlineEditor: React.FC = () => {
         {visibleNodes.length === 0 && rootAgentInsertions.length === 0 && (
           <div
             onClick={() => insertNode(currentDoc.root.id)}
-            className="flex items-center gap-2 border border-dashed border-amber-900/30 rounded-xl p-5 text-zinc-400 hover:border-amber-900/50 hover:text-zinc-600 transition cursor-pointer justify-center my-6 select-none bg-[#FAF9F5]/40"
+            className="flex flex-col items-center gap-3 border border-dashed border-amber-900/30 dark:border-zinc-800 rounded-2xl p-8 text-zinc-400 dark:text-zinc-500 hover:border-amber-900/50 dark:hover:border-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-300 transition cursor-pointer justify-center my-6 select-none bg-[#FAF9F5]/40 dark:bg-zinc-900/20 group shadow-sm"
           >
-            <Plus size={14} />
-            <span className="text-xs font-semibold font-mono tracking-wider">点击缝入第一个节点</span>
+            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-amber-900/5 dark:bg-zinc-800/50 group-hover:scale-110 transition-transform duration-300">
+              <Plus size={16} />
+            </div>
+            <span className="text-xs font-medium tracking-wide">点击缝入第一个节点</span>
           </div>
         )}
       </div>

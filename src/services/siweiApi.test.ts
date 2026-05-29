@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { createDocument } from '../test/fixtures'
 import type { AgentDocumentContext } from '../features/agent/agentTypes'
+import type { AppSettings } from '../types/settings'
 import * as api from './siweiApi'
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -143,11 +144,13 @@ describe('siweiApi', () => {
   })
 
   it('wraps settings commands with stable camelCase payload fields', async () => {
-    const settings = {
+    const settings: AppSettings = {
       autoSaveEnabled: false,
       autoSaveIntervalMs: 2500,
-      defaultViewMode: 'split' as const,
+      defaultViewMode: 'split',
       sidebarCollapsed: true,
+      theme: 'dark',
+      focusMode: true,
       agent: {
         enabled: false,
         provider: 'openai-compatible',

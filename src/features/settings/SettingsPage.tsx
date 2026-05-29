@@ -1,12 +1,27 @@
 import React from 'react'
-import { Bot, Database, KeyRound, List, PanelLeftClose, PanelLeftOpen, RefreshCw, Save, Trash2, X } from 'lucide-react'
+import {
+  Bot,
+  Database,
+  KeyRound,
+  List,
+  Maximize,
+  Monitor,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  RefreshCw,
+  Save,
+  Sun,
+  Trash2,
+  X,
+} from 'lucide-react'
 
 import { toast } from '../../components/common/Toast'
 import { useWorkspaceStore } from '../../app/workspaceStore'
 import { useRecentStore } from '../document/recentStore'
 import { useLibraryStore } from '../library/libraryStore'
 import { useSettingsStore } from './settingsStore'
-import type { DefaultViewMode } from '../../types/settings'
+import type { DefaultViewMode, ThemeMode } from '../../types/settings'
 import { agentDeleteApiKey, agentSaveApiKey } from '../../services/siweiApi'
 
 export const SettingsPage: React.FC = () => {
@@ -72,10 +87,10 @@ export const SettingsPage: React.FC = () => {
   }
 
   return (
-    <section className="flex h-full flex-col bg-[#FCFCFB] text-zinc-800">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-200/70 bg-white/70 px-5">
+    <section className="flex h-full flex-col bg-[#FCFCFB] text-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
+      <header className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-200/70 bg-white/70 px-5 dark:border-zinc-800/70 dark:bg-zinc-900/70">
         <div className="flex items-center gap-2">
-          <Save size={16} className="text-zinc-700" />
+          <Save size={16} className="text-zinc-700 dark:text-zinc-200" />
           <h1 className="text-sm font-semibold">设置</h1>
           {isSaving && <RefreshCw size={13} className="animate-spin text-zinc-400" />}
         </div>
@@ -84,7 +99,7 @@ export const SettingsPage: React.FC = () => {
           onClick={() => setActiveView('editor')}
           aria-label="关闭设置"
           title="关闭面板"
-          className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-300"
+          className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 dark:focus:ring-zinc-700"
         >
           <X size={16} />
         </button>
@@ -159,13 +174,71 @@ export const SettingsPage: React.FC = () => {
           </SettingsSection>
 
           <SettingsSection title="界面">
+            <SettingRow title="主题" description="控制应用外观，可跟随系统或手动固定。">
+              <div className="grid w-72 grid-cols-3 gap-1 rounded-md border border-zinc-200 bg-white p-0.5 dark:border-zinc-800 dark:bg-zinc-900">
+                {[
+                  { key: 'system', label: '系统', icon: Monitor },
+                  { key: 'light', label: '浅色', icon: Sun },
+                  { key: 'dark', label: '深色', icon: Moon },
+                ].map((item) => {
+                  const Icon = item.icon
+                  const isActive = settings.theme === item.key
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => void saveSetting({ theme: item.key as ThemeMode })}
+                      className={`flex h-8 items-center justify-center gap-1 rounded-[4px] text-xs font-medium ${
+                        isActive
+                          ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                          : 'text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
+                      }`}
+                    >
+                      <Icon size={13} />
+                      {item.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </SettingRow>
+
+            <SettingRow title="专注模式" description="隐藏侧栏、顶部工具栏和状态栏，只保留编辑画布。">
+              <div className="grid w-44 grid-cols-2 gap-1 rounded-md border border-zinc-200 bg-white p-0.5 dark:border-zinc-800 dark:bg-zinc-900">
+                <button
+                  type="button"
+                  onClick={() => void saveSetting({ focusMode: true })}
+                  className={`flex h-8 items-center justify-center gap-1 rounded-[4px] text-xs font-medium ${
+                    settings.focusMode
+                      ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                      : 'text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
+                  }`}
+                >
+                  <Maximize size={13} />
+                  开启
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveSetting({ focusMode: false })}
+                  className={`flex h-8 items-center justify-center gap-1 rounded-[4px] text-xs font-medium ${
+                    !settings.focusMode
+                      ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                      : 'text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
+                  }`}
+                >
+                  关闭
+                </button>
+              </div>
+            </SettingRow>
+
             <SettingRow title="侧栏默认状态" description="下次启动后继续使用同样的展开状态。">
-              <div className="grid w-44 grid-cols-2 gap-1 rounded-md border border-zinc-200 bg-white p-0.5">
+              <div className="grid w-44 grid-cols-2 gap-1 rounded-md border border-zinc-200 bg-white p-0.5 dark:border-zinc-800 dark:bg-zinc-900">
                 <button
                   type="button"
                   onClick={() => void saveSetting({ sidebarCollapsed: false })}
                   className={`flex h-8 items-center justify-center gap-1 rounded-[4px] text-xs font-medium ${
-                    !settings.sidebarCollapsed ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:bg-zinc-100'
+                    !settings.sidebarCollapsed
+                      ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                      : 'text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
                   }`}
                 >
                   <PanelLeftOpen size={13} />
@@ -175,7 +248,9 @@ export const SettingsPage: React.FC = () => {
                   type="button"
                   onClick={() => void saveSetting({ sidebarCollapsed: true })}
                   className={`flex h-8 items-center justify-center gap-1 rounded-[4px] text-xs font-medium ${
-                    settings.sidebarCollapsed ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:bg-zinc-100'
+                    settings.sidebarCollapsed
+                      ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                      : 'text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
                   }`}
                 >
                   <PanelLeftClose size={13} />
@@ -306,11 +381,11 @@ export const SettingsPage: React.FC = () => {
 
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-      <div className="border-b border-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-800">
+    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900/70">
+      <div className="border-b border-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-800 dark:border-zinc-800 dark:text-zinc-100">
         {title}
       </div>
-      <div className="divide-y divide-zinc-100">{children}</div>
+      <div className="divide-y divide-zinc-100 dark:divide-zinc-800">{children}</div>
     </section>
   )
 }
@@ -327,8 +402,8 @@ function SettingRow({
   return (
     <div className="grid gap-4 px-4 py-4 md:grid-cols-[1fr_auto] md:items-center">
       <div>
-        <div className="text-sm font-medium text-zinc-800">{title}</div>
-        <div className="mt-1 text-xs leading-5 text-zinc-500">{description}</div>
+        <div className="text-sm font-medium text-zinc-800 dark:text-zinc-100">{title}</div>
+        <div className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{description}</div>
       </div>
       <div className="md:justify-self-end">{children}</div>
     </div>
@@ -350,16 +425,16 @@ function DataAction({
     <button
       type="button"
       onClick={onClick}
-      className="grid w-full gap-3 px-4 py-4 text-left transition hover:bg-zinc-50 md:grid-cols-[auto_1fr_auto] md:items-center"
+      className="grid w-full gap-3 px-4 py-4 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-800/60 md:grid-cols-[auto_1fr_auto] md:items-center"
     >
-      <span className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-500">
+      <span className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
         {icon}
       </span>
       <span>
-        <span className="block text-sm font-medium text-zinc-800">{title}</span>
-        <span className="mt-1 block text-xs leading-5 text-zinc-500">{description}</span>
+        <span className="block text-sm font-medium text-zinc-800 dark:text-zinc-100">{title}</span>
+        <span className="mt-1 block text-xs leading-5 text-zinc-500 dark:text-zinc-400">{description}</span>
       </span>
-      <span className="text-xs font-medium text-zinc-500">执行</span>
+      <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">执行</span>
     </button>
   )
 }
