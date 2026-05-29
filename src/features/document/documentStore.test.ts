@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useDocumentStore } from './documentStore'
 import { createDocument } from '../../test/fixtures'
 import * as api from '../../services/siweiApi'
+import { createDocumentSnapshotKey } from '../agent/agentChangePlan'
 
 vi.mock('../../services/siweiApi', () => ({
   newDocument: vi.fn(),
@@ -461,6 +462,174 @@ describe('documentStore', () => {
     expect(useDocumentStore.getState().currentDoc?.root.children[1].note).toBe('多行备注\n第二行')
     useDocumentStore.getState().redo()
     expect(useDocumentStore.getState().currentDoc?.root.children[1].note).toBeUndefined()
+  })
+
+  it('applies an agent change plan as one undoable transaction', async () => {
+    await loadFixtureDoc()
+    const doc = useDocumentStore.getState().currentDoc!
+
+    const result = useDocumentStore.getState().applyAgentChangePlan({
+      schemaVersion: 1,
+      contextScope: 'currentDocument',
+      documentId: doc.id,
+      snapshotKey: createDocumentSnapshotKey(doc),
+      summary: '新增节点',
+      rationale: '测试事务应用',
+      riskLevel: 'low',
+      references: [],
+      operations: [
+        {
+          type: 'updateNode',
+          nodeId: 'node-2',
+          text: '助理改写',
+        },
+        {
+          type: 'insertNode',
+          parentNodeId: 'root',
+          index: 2,
+          node: {
+            id: 'agent-node',
+            text: '助理新增',
+          },
+        },
+      ],
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.text)).toEqual([
+      '第一节点',
+      '助理改写',
+      '助理新增',
+    ])
+    expect(useDocumentStore.getState().canUndo).toBe(true)
+
+    useDocumentStore.getState().undo()
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.text)).toEqual([
+      '第一节点',
+      '第二节点',
+    ])
+  })
+
+  it('lets the agent insert mind map nodes through a controlled document transaction', async () => {
+    await loadFixtureDoc()
+    const doc = useDocumentStore.getState().currentDoc!
+    useDocumentStore.setState({ collapsedNodeIds: new Set(['node-1']) })
+
+    const result = useDocumentStore.getState().insertAgentMindMapNodes({
+      documentId: doc.id,
+      snapshotKey: createDocumentSnapshotKey(doc),
+      parentNodeId: 'node-1',
+      nodes: [
+        {
+          text: 'AI 生成节点',
+          note: '  说明  ',
+          tags: [' 计划 ', '计划', ''],
+          checked: false,
+          children: [
+            { text: '子节点' },
+          ],
+        },
+      ],
+    })
+
+    expect(result.ok).toBe(true)
+    const insertedId = result.ok ? result.insertedNodeIds[0] : ''
+    const inserted = useDocumentStore.getState().currentDoc?.root.children[0].children[1]
+    expect(inserted).toMatchObject({
+      id: insertedId,
+      text: 'AI 生成节点',
+      note: '说明',
+      tags: ['计划'],
+      checked: false,
+      children: [
+        { text: '子节点' },
+      ],
+    })
+    expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(false)
+    expect(useDocumentStore.getState().selectedNodeId).toBe(insertedId)
+    expect(useDocumentStore.getState().isDirty).toBe(true)
+    expect(useDocumentStore.getState().canUndo).toBe(true)
+
+    useDocumentStore.getState().undo()
+    expect(useDocumentStore.getState().currentDoc?.root.children[0].children.map((node) => node.id)).toEqual([
+      'node-1-1',
+    ])
+  })
+
+  it('rejects stale agent mind map tool requests without mutating the document', async () => {
+    await loadFixtureDoc()
+
+    const result = useDocumentStore.getState().insertAgentMindMapNodes({
+      documentId: 'doc-1',
+      snapshotKey: 'stale',
+      parentNodeId: 'root',
+      nodes: [{ text: '不应插入' }],
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      error: '当前文档已变化，请让助理重新生成节点',
+    })
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.text)).toEqual([
+      '第一节点',
+      '第二节点',
+    ])
+    expect(useDocumentStore.getState().canUndo).toBe(false)
+  })
+
+  it('rejects agent mind map tool requests with empty descendant titles', async () => {
+    await loadFixtureDoc()
+    const doc = useDocumentStore.getState().currentDoc!
+
+    const result = useDocumentStore.getState().insertAgentMindMapNodes({
+      documentId: doc.id,
+      snapshotKey: createDocumentSnapshotKey(doc),
+      parentNodeId: 'root',
+      nodes: [
+        {
+          text: '父节点',
+          children: [{ text: '   ' }],
+        },
+      ],
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'Agent 工具请求包含空节点标题',
+    })
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.text)).toEqual([
+      '第一节点',
+      '第二节点',
+    ])
+  })
+
+  it('rejects stale agent change plans without mutating the document', async () => {
+    await loadFixtureDoc()
+
+    const result = useDocumentStore.getState().applyAgentChangePlan({
+      schemaVersion: 1,
+      contextScope: 'currentDocument',
+      documentId: 'doc-1',
+      snapshotKey: 'stale',
+      summary: '过期计划',
+      rationale: '测试过期保护',
+      riskLevel: 'medium',
+      references: [],
+      operations: [
+        {
+          type: 'updateNode',
+          nodeId: 'node-2',
+          text: '不应应用',
+        },
+      ],
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      error: '当前文档已变化，请让助理重新生成修改计划',
+    })
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].text).toBe('第二节点')
+    expect(useDocumentStore.getState().canUndo).toBe(false)
   })
 
   it('renames removes and merges tags with history and dirty state', async () => {

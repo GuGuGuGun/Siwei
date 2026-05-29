@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { createDocument } from '../test/fixtures'
+import type { AgentDocumentContext } from '../features/agent/agentTypes'
 import * as api from './siweiApi'
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -141,6 +142,14 @@ describe('siweiApi', () => {
       autoSaveIntervalMs: 2500,
       defaultViewMode: 'split' as const,
       sidebarCollapsed: true,
+      agent: {
+        enabled: false,
+        provider: 'openai-compatible',
+        model: 'gpt-4.1',
+        baseUrl: 'https://api.openai.com/v1',
+        thinkingLevel: 'medium' as const,
+        contextScope: 'currentDocument' as const,
+      },
     }
     invokeMock.mockResolvedValue(settings)
 
@@ -149,5 +158,45 @@ describe('siweiApi', () => {
 
     expect(invokeMock).toHaveBeenNthCalledWith(1, 'get_settings', undefined)
     expect(invokeMock).toHaveBeenNthCalledWith(2, 'update_settings', { settings })
+  })
+
+  it('wraps agent commands with stable camelCase payload fields', async () => {
+    const context: AgentDocumentContext = {
+      schemaVersion: 1,
+      contextScope: 'currentDocument',
+      documentId: 'doc-1',
+      title: '测试文档',
+      snapshotKey: 'snapshot',
+      root: {
+        nodeId: 'root',
+        text: '测试文档',
+        children: [],
+      },
+    }
+    invokeMock.mockResolvedValue(undefined)
+
+    await api.agentStartSession('doc-1')
+    await api.agentSendMessage('总结当前文档', context)
+    await api.agentAbort()
+    await api.agentGetStatus()
+    await api.agentSaveApiKey('openai-compatible', 'sk-test')
+    await api.agentDeleteApiKey('openai-compatible')
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'agent_start_session', {
+      sessionKey: 'doc-1',
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'agent_send_message', {
+      message: '总结当前文档',
+      documentContext: context,
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'agent_abort', undefined)
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'agent_get_status', undefined)
+    expect(invokeMock).toHaveBeenNthCalledWith(5, 'agent_save_api_key', {
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(6, 'agent_delete_api_key', {
+      provider: 'openai-compatible',
+    })
   })
 })

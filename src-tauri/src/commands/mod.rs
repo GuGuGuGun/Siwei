@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod dialogs;
 pub mod document;
 pub mod import_export;
@@ -40,6 +41,12 @@ pub fn handlers() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sy
         dialogs::save_file_dialog,
         search::search_document,
         settings::get_settings,
-        settings::update_settings
+        settings::update_settings,
+        agent::agent_start_session,
+        agent::agent_send_message,
+        agent::agent_abort,
+        agent::agent_get_status,
+        agent::agent_save_api_key,
+        agent::agent_delete_api_key
     ]
 }

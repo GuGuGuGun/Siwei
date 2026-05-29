@@ -1,11 +1,12 @@
 import React from 'react'
-import { Database, List, PanelLeftClose, PanelLeftOpen, RefreshCw, Save, Trash2 } from 'lucide-react'
+import { Bot, Database, KeyRound, List, PanelLeftClose, PanelLeftOpen, RefreshCw, Save, Trash2 } from 'lucide-react'
 
 import { toast } from '../../components/common/Toast'
 import { useRecentStore } from '../document/recentStore'
 import { useLibraryStore } from '../library/libraryStore'
 import { useSettingsStore } from './settingsStore'
 import type { DefaultViewMode } from '../../types/settings'
+import { agentDeleteApiKey, agentSaveApiKey } from '../../services/siweiApi'
 
 export const SettingsPage: React.FC = () => {
   const settings = useSettingsStore((s) => s.settings)
@@ -17,6 +18,7 @@ export const SettingsPage: React.FC = () => {
   const startRefreshJob = useLibraryStore((s) => s.startRefreshJob)
   const removeMissingDocs = useLibraryStore((s) => s.removeMissingDocs)
   const rebuildIndex = useLibraryStore((s) => s.rebuildIndex)
+  const [apiKey, setApiKey] = React.useState('')
 
   const saveSetting = async (patch: Parameters<typeof updateSettings>[0]) => {
     try {
@@ -45,6 +47,25 @@ export const SettingsPage: React.FC = () => {
       toast.success(successMessage)
     } catch (error) {
       toast.error(`操作失败: ${String(error)}`)
+    }
+  }
+
+  const saveApiKey = async () => {
+    try {
+      await agentSaveApiKey(settings.agent.provider, apiKey)
+      setApiKey('')
+      toast.success('API key 已保存到系统钥匙串')
+    } catch (error) {
+      toast.error(`API key 保存失败: ${String(error)}`)
+    }
+  }
+
+  const deleteApiKey = async () => {
+    try {
+      await agentDeleteApiKey(settings.agent.provider)
+      toast.info('API key 已从系统钥匙串删除')
+    } catch (error) {
+      toast.error(`API key 删除失败: ${String(error)}`)
     }
   }
 
@@ -148,6 +169,93 @@ export const SettingsPage: React.FC = () => {
                 >
                   <PanelLeftClose size={13} />
                   收起
+                </button>
+              </div>
+            </SettingRow>
+          </SettingsSection>
+
+          <SettingsSection title="文档助理">
+            <SettingRow title="启用助理" description="开启后可在编辑器右侧使用第三方模型处理当前文档。">
+              <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-zinc-600">
+                <input
+                  type="checkbox"
+                  checked={settings.agent.enabled}
+                  onChange={(event) => void saveSetting({
+                    agent: { ...settings.agent, enabled: event.target.checked },
+                  })}
+                  className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                />
+                {settings.agent.enabled ? '已开启' : '已关闭'}
+              </label>
+            </SettingRow>
+            <SettingRow title="第三方模型" description="兼容 OpenAI 风格接口，密钥单独保存到系统钥匙串。">
+              <div className="flex items-center gap-2">
+                <input
+                  value={settings.agent.provider}
+                  onChange={(event) => void saveSetting({
+                    agent: { ...settings.agent, provider: event.target.value },
+                  })}
+                  className="h-8 w-28 rounded-md border border-zinc-200 bg-white px-2 text-xs text-zinc-700 outline-none focus:border-zinc-400"
+                />
+                <input
+                  value={settings.agent.model}
+                  onChange={(event) => void saveSetting({
+                    agent: { ...settings.agent, model: event.target.value },
+                  })}
+                  className="h-8 w-56 rounded-md border border-zinc-200 bg-white px-2 text-xs text-zinc-700 outline-none focus:border-zinc-400"
+                />
+              </div>
+            </SettingRow>
+            <SettingRow title="接口地址" description="填写第三方模型的 OpenAI-compatible base URL。">
+              <input
+                value={settings.agent.baseUrl}
+                onChange={(event) => void saveSetting({
+                  agent: { ...settings.agent, baseUrl: event.target.value },
+                })}
+                className="h-8 w-96 rounded-md border border-zinc-200 bg-white px-2 text-xs text-zinc-700 outline-none focus:border-zinc-400"
+              />
+            </SettingRow>
+            <SettingRow title="思考等级" description="用于支持 reasoning 的模型。">
+              <select
+                value={settings.agent.thinkingLevel}
+                onChange={(event) => void saveSetting({
+                  agent: {
+                    ...settings.agent,
+                    thinkingLevel: event.target.value as typeof settings.agent.thinkingLevel,
+                  },
+                })}
+                className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-xs text-zinc-700 outline-none focus:border-zinc-400"
+              >
+                {['off', 'minimal', 'low', 'medium', 'high', 'xhigh'].map((level) => (
+                  <option key={level} value={level}>{level}</option>
+                ))}
+              </select>
+            </SettingRow>
+            <SettingRow title="API key" description="密钥保存到系统钥匙串，不写入 settings.json。">
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(event) => setApiKey(event.target.value)}
+                  placeholder="输入 API key"
+                  className="h-8 w-56 rounded-md border border-zinc-200 bg-white px-2 text-xs text-zinc-700 outline-none focus:border-zinc-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => void saveApiKey()}
+                  disabled={!apiKey.trim()}
+                  className="flex h-8 items-center gap-1.5 rounded-md bg-zinc-900 px-3 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-40"
+                >
+                  <KeyRound size={13} />
+                  保存
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void deleteApiKey()}
+                  className="flex h-8 items-center gap-1.5 rounded-md border border-zinc-200 px-3 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
+                >
+                  <Bot size={13} />
+                  删除
                 </button>
               </div>
             </SettingRow>

@@ -83,6 +83,7 @@ mod tests {
             auto_save_interval_ms: 2_500,
             default_view_mode: DefaultViewMode::Split,
             sidebar_collapsed: true,
+            agent: Default::default(),
         };
 
         update_settings(dir.path(), settings.clone()).unwrap();

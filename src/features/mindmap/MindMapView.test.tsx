@@ -1,6 +1,9 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDocument } from '../../test/fixtures'
+import { createDocumentSnapshotKey } from '../agent/agentChangePlan'
+import { useAgentStore } from '../agent/agentStore'
+import type { AgentChangePlan, AgentOperation } from '../agent/agentTypes'
 import { useDocumentStore } from '../document/documentStore'
 import { MindMapView } from './MindMapView'
 
@@ -155,6 +158,12 @@ describe('MindMapView', () => {
       cleanSnapshotKey: null,
       activeTextEditSession: null,
     })
+    useAgentStore.setState({
+      pendingPlan: null,
+      error: null,
+      messages: [],
+      isSending: false,
+    })
   })
 
   it('opens a context menu with root-only disabled operations', () => {
@@ -294,4 +303,75 @@ describe('MindMapView', () => {
     expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.['node-1-1']).toEqual({ x: 240, y: 96 })
   })
 
+  it('renders assistant previews inside mind map nodes', () => {
+    const doc = useDocumentStore.getState().currentDoc!
+    act(() => {
+      useAgentStore.getState().setPendingPlan({
+        ...createStrictPlan(doc.id, createDocumentSnapshotKey(doc), [
+          {
+            type: 'updateNode',
+            nodeId: 'node-2',
+            text: '助理改写',
+          },
+          {
+            type: 'deleteNode',
+            nodeId: 'node-1-1',
+          },
+        ]),
+      })
+    })
+
+    render(<MindMapView />)
+
+    expect(screen.getByTestId('mindmap-node-node-2')).toHaveTextContent('助理改写')
+    expect(screen.getByTestId('mindmap-node-node-1-1')).toHaveTextContent('将删除')
+  })
+
+  it('renders root insertion previews as mind map nodes when the document has no children', () => {
+    const doc = createDocument()
+    const emptyDoc = {
+      ...doc,
+      root: {
+        ...doc.root,
+        children: [],
+      },
+    }
+    useDocumentStore.setState({ currentDoc: emptyDoc })
+    act(() => {
+      useAgentStore.getState().setPendingPlan({
+        ...createStrictPlan(emptyDoc.id, createDocumentSnapshotKey(emptyDoc), [
+          {
+            type: 'insertNode',
+            parentNodeId: emptyDoc.root.id,
+            index: 0,
+            node: { id: 'agent-node', text: '计算器开发' },
+          },
+        ]),
+      })
+    })
+
+    render(<MindMapView />)
+
+    expect(screen.getByTestId('mindmap-node-agent-insertion-preview:agent-node')).toHaveTextContent('计算器开发')
+    expect(screen.getByTestId('mindmap-node-agent-insertion-preview:agent-node')).toHaveTextContent('将插入')
+  })
+
 })
+
+function createStrictPlan(
+  documentId: string,
+  snapshotKey: string,
+  operations: AgentOperation[],
+): AgentChangePlan {
+  return {
+    schemaVersion: 1,
+    contextScope: 'currentDocument',
+    documentId,
+    snapshotKey,
+    summary: '测试修改计划',
+    rationale: '验证脑图中的助理预览',
+    riskLevel: 'low',
+    references: [],
+    operations,
+  }
+}

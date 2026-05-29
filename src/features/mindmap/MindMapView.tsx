@@ -11,6 +11,8 @@ import 'reactflow/dist/style.css'
 
 import { FileText, GitBranch, LayoutDashboard, Move } from 'lucide-react'
 import { useDocumentStore } from '../document/documentStore'
+import { createAgentDocumentPreview } from '../agent/agentChangePlan'
+import { useAgentStore } from '../agent/agentStore'
 import { useNodeContextMenuController } from '../document/useNodeContextMenuController'
 import { outlineToGraph } from './outlineToGraph'
 import { layoutGraph } from './layoutGraph'
@@ -25,6 +27,7 @@ import {
   resolveMindMapDragTarget,
   resolveMindMapDropMove,
 } from './mindMapReorder'
+import type { AgentInsertionPreview } from '../agent/agentTypes'
 
 interface MindMapEditingState {
   nodeId: string
@@ -39,6 +42,7 @@ const nodeTypes = {
 }
 
 const REORGANIZE_CHILD_PREVIEW_GAP = 32
+const AGENT_INSERTION_NODE_PREFIX = 'agent-insertion-preview:'
 
 const isTextInputTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) return false
@@ -49,6 +53,7 @@ const isTextInputTarget = (target: EventTarget | null): boolean => {
 export const MindMapView: React.FC = () => {
   const currentDoc = useDocumentStore((s) => s.currentDoc)
   const collapsedNodeIds = useDocumentStore((s) => s.collapsedNodeIds)
+  const pendingAgentPlan = useAgentStore((s) => s.pendingPlan)
   const selectedNodeId = useDocumentStore((s) => s.selectedNodeId)
   const selectNode = useDocumentStore((s) => s.selectNode)
   const updateNodeText = useDocumentStore((s) => s.updateNodeText)
@@ -97,6 +102,11 @@ export const MindMapView: React.FC = () => {
     visit(currentDoc.root)
     return indexes
   }, [currentDoc])
+
+  const agentPreview = React.useMemo(
+    () => createAgentDocumentPreview(pendingAgentPlan),
+    [pendingAgentPlan],
+  )
 
   const getNodeDescendantIds = React.useCallback((nodeId: string): Set<string> => {
     const descendantIds = new Set<string>()
@@ -158,15 +168,23 @@ export const MindMapView: React.FC = () => {
     if (!currentDoc) return
 
     const rawGraph = outlineToGraph(currentDoc.root, collapsedNodeIds)
+    const graphWithAgentInsertions = addAgentInsertionPreviewGraph(
+      rawGraph,
+      currentDoc.root.id,
+      agentPreview.insertionsByParentId.get(currentDoc.root.id) ?? [],
+    )
     const layouted = layoutGraph({
-      ...rawGraph,
-      nodes: rawGraph.nodes.map((node) => {
+      ...graphWithAgentInsertions,
+      nodes: graphWithAgentInsertions.nodes.map((node) => {
         const sourceNode = findNodeById(currentDoc.root, node.id)
+        const previewInsertion = getAgentInsertionFromGraphNode(node)
         const data: MindMapNodeData = {
-          label: sourceNode?.text ?? '',
-          childCount: sourceNode?.children.length ?? 0,
-          collapsed: Boolean(sourceNode && collapsedNodeIds.has(sourceNode.id)),
-          checked: sourceNode?.checked,
+          label: previewInsertion?.node.text ?? sourceNode?.text ?? '',
+          childCount: previewInsertion ? 0 : sourceNode?.children.length ?? 0,
+          collapsed: previewInsertion ? false : Boolean(sourceNode && collapsedNodeIds.has(sourceNode.id)),
+          checked: previewInsertion ? undefined : sourceNode?.checked,
+          agentPreview: previewInsertion ? undefined : agentPreview.nodePreviews.get(node.id),
+          agentInsertion: Boolean(previewInsertion),
           dropState: null,
           editing: editing?.nodeId === node.id,
           onToggleCollapse: toggleCollapse,
@@ -186,7 +204,7 @@ export const MindMapView: React.FC = () => {
         return {
           ...node,
           data,
-          selected: node.id === selectedNodeId,
+          selected: !previewInsertion && node.id === selectedNodeId,
         }
       }),
     }, {
@@ -202,6 +220,7 @@ export const MindMapView: React.FC = () => {
     currentDoc,
     editing?.nodeId,
     finishEditing,
+    agentPreview,
     handleDelete,
     indentNode,
     insertChildAndEdit,
@@ -363,15 +382,18 @@ export const MindMapView: React.FC = () => {
   }
 
   const handleNodeClick = (_event: React.MouseEvent, node: Node) => {
+    if (isAgentInsertionNodeId(node.id)) return
     selectNode(node.id)
   }
 
   const handleNodeDoubleClick = (_event: React.MouseEvent, node: Node) => {
+    if (isAgentInsertionNodeId(node.id)) return
     startEditing(node.id)
   }
 
   const handleNodeContextMenu = (event: React.MouseEvent, node: Node) => {
     event.preventDefault()
+    if (isAgentInsertionNodeId(node.id)) return
     openContextMenu(node.id, event.clientX, event.clientY)
   }
 
@@ -505,4 +527,44 @@ export const MindMapView: React.FC = () => {
       )}
     </div>
   )
+}
+
+function addAgentInsertionPreviewGraph(
+  graph: ReturnType<typeof outlineToGraph>,
+  rootNodeId: string,
+  rootInsertions: AgentInsertionPreview[],
+): ReturnType<typeof outlineToGraph> {
+  if (rootInsertions.length === 0) return graph
+
+  const previewNodes = rootInsertions.map((insertion) => ({
+    id: createAgentInsertionNodeId(insertion.node.id),
+    position: { x: 0, y: 0 },
+    data: { label: insertion.node.text || '空白节点', agentInsertion: insertion },
+    type: 'custom',
+  }))
+  const previewEdges = rootInsertions.map((insertion) => ({
+    id: `${rootNodeId}-${createAgentInsertionNodeId(insertion.node.id)}`,
+    source: rootNodeId,
+    target: createAgentInsertionNodeId(insertion.node.id),
+    type: 'smoothstep',
+    style: { stroke: '#059669', strokeWidth: 1.8, strokeDasharray: '4 4' },
+  }))
+
+  return {
+    nodes: [...graph.nodes, ...previewNodes],
+    edges: [...graph.edges, ...previewEdges],
+  }
+}
+
+function createAgentInsertionNodeId(nodeId: string): string {
+  return `${AGENT_INSERTION_NODE_PREFIX}${nodeId}`
+}
+
+function isAgentInsertionNodeId(nodeId: string): boolean {
+  return nodeId.startsWith(AGENT_INSERTION_NODE_PREFIX)
+}
+
+function getAgentInsertionFromGraphNode(node: Node): AgentInsertionPreview | null {
+  const data = node.data as { agentInsertion?: AgentInsertionPreview } | undefined
+  return data?.agentInsertion ?? null
 }

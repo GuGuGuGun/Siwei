@@ -11,6 +11,8 @@ import { ToastContainer, toast } from '../components/common/Toast'
 import { useDocumentStore } from '../features/document/documentStore'
 import { useSettingsStore } from '../features/settings/settingsStore'
 import { useWorkspaceStore } from './workspaceStore'
+import { useAgentStore } from '../features/agent/agentStore'
+import { AgentPanel } from '../features/agent/AgentPanel'
 import { openFileDialog, saveFileDialog } from '../services/siweiApi'
 import { Search, Save, FileOutput, FileInput, Grid, List, Columns, Sparkles, Undo2, Redo2 } from 'lucide-react'
 
@@ -24,6 +26,8 @@ export const App: React.FC = () => {
   const settings = useSettingsStore((s) => s.settings)
   const loadSettings = useSettingsStore((s) => s.loadSettings)
   const activeWorkspaceView = useWorkspaceStore((s) => s.activeView)
+  const isAgentOpen = useAgentStore((s) => s.isOpen)
+  const setAgentOpen = useAgentStore((s) => s.setOpen)
 
   const newDoc = useDocumentStore((s) => s.newDoc)
   const saveDoc = useDocumentStore((s) => s.saveDoc)
@@ -224,6 +228,16 @@ export const App: React.FC = () => {
             </button>
 
             <button
+              onClick={() => setAgentOpen(!isAgentOpen)}
+              className={`btn-patch-light flex h-8 w-8 items-center justify-center rounded-md focus:outline-none ${
+                isAgentOpen ? 'bg-zinc-900 text-white hover:bg-zinc-800' : ''
+              }`}
+              title="文档助理"
+            >
+              <Sparkles size={15} />
+            </button>
+
+            <button
               onClick={() => setIsImportOpen(true)}
               className="btn-patch-light flex h-8 w-8 items-center justify-center rounded-md focus:outline-none"
               title="导入"
@@ -256,28 +270,33 @@ export const App: React.FC = () => {
 
         {/* Content Workspace Area */}
         <main className="flex-1 overflow-hidden relative bg-linen">
-          {activeWorkspaceView === 'library' ? (
-            <LibraryWorkspace />
-          ) : activeWorkspaceView === 'settings' ? (
-            <SettingsPage />
-          ) : (
-            <>
-              {viewMode === 'outline' && <OutlineEditor />}
+          <div className="flex h-full w-full overflow-hidden">
+            <div className="min-w-0 flex-1 overflow-hidden">
+              {activeWorkspaceView === 'library' ? (
+                <LibraryWorkspace />
+              ) : activeWorkspaceView === 'settings' ? (
+                <SettingsPage />
+              ) : (
+                <>
+                  {viewMode === 'outline' && <OutlineEditor />}
 
-              {viewMode === 'mindmap' && <MindMapView />}
+                  {viewMode === 'mindmap' && <MindMapView />}
 
-              {viewMode === 'split' && (
-                <div className="flex h-full w-full">
-                  <div className="w-1/2 h-full overflow-hidden border-r border-zinc-200/60">
-                    <OutlineEditor />
-                  </div>
-                  <div className="w-1/2 h-full overflow-hidden bg-[#FDFDFD]">
-                    <MindMapView />
-                  </div>
-                </div>
+                  {viewMode === 'split' && (
+                    <div className="flex h-full w-full">
+                      <div className="w-1/2 h-full overflow-hidden border-r border-zinc-200/60">
+                        <OutlineEditor />
+                      </div>
+                      <div className="w-1/2 h-full overflow-hidden bg-[#FDFDFD]">
+                        <MindMapView />
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
-            </>
-          )}
+            </div>
+            {isAgentOpen && <AgentPanel />}
+          </div>
         </main>
 
         {/* StatusBar */}

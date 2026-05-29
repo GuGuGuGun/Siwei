@@ -2,12 +2,15 @@ import React from 'react'
 import { Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { Handle, NodeProps, Position } from 'reactflow'
 import { MindMapInlineEditor } from './MindMapInlineEditor'
+import type { AgentNodePreview } from '../agent/agentTypes'
 
 export interface MindMapNodeData {
   label: string
   childCount: number
   collapsed: boolean
   dropState?: 'before' | 'child' | 'after' | null
+  agentPreview?: AgentNodePreview
+  agentInsertion?: boolean
   checked?: boolean
   editing: boolean
   onToggleCollapse: (nodeId: string) => void
@@ -27,12 +30,23 @@ export interface MindMapNodeData {
 export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, selected, type }) => {
   const isRoot = type === 'root'
   const hasChildren = data.childCount > 0
+  const isAgentDeleting = data.agentPreview?.kind === 'delete'
+  const isAgentMoving = data.agentPreview?.kind === 'move'
+  const agentTextPreview = data.agentPreview?.kind === 'update' ? data.agentPreview.text : undefined
 
   return (
     <div
       data-testid={`mindmap-node-${id}`}
       className={`relative min-w-[170px] max-w-[240px] rounded-xl border-2 px-3 py-2 text-center shadow-fabric transition-all duration-200 ${
-        data.dropState === 'child'
+        isAgentDeleting
+          ? 'border-rose-300 bg-rose-50 ring-4 ring-rose-500/10'
+        : data.agentInsertion
+          ? 'border-emerald-300 bg-emerald-50 ring-4 ring-emerald-500/10'
+        : agentTextPreview
+          ? 'border-emerald-300 bg-emerald-50 ring-4 ring-emerald-500/10'
+        : isAgentMoving
+          ? 'border-sky-300 bg-sky-50 ring-4 ring-sky-500/10'
+        : data.dropState === 'child'
           ? 'scale-[1.02] border-emerald-500 bg-emerald-50 ring-4 ring-emerald-500/10'
           : selected
           ? 'scale-[1.03] border-dashed border-amber-600 bg-[#FCFAF0] ring-4 ring-amber-600/5'
@@ -80,8 +94,30 @@ export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, se
               onToggleChecked={() => data.onToggleChecked(id)}
             />
           ) : (
-            <div className="break-words text-xs font-semibold leading-relaxed text-zinc-800">
-              {data.label || <span className="font-normal italic text-zinc-400">空白节点</span>}
+            <div>
+              <div className={`break-words text-xs font-semibold leading-relaxed ${
+                isAgentDeleting
+                  ? 'text-rose-700 line-through'
+                  : agentTextPreview
+                    ? 'text-zinc-400 line-through'
+                    : 'text-zinc-800'
+              }`}>
+                {data.label || <span className="font-normal italic text-zinc-400">空白节点</span>}
+              </div>
+              {agentTextPreview && (
+                <div className="break-words text-xs font-semibold leading-relaxed text-emerald-700">
+                  {agentTextPreview}
+                </div>
+              )}
+              {data.agentInsertion && (
+                <div className="mt-0.5 text-[10px] font-medium text-emerald-600">将插入</div>
+              )}
+              {isAgentDeleting && (
+                <div className="mt-0.5 text-[10px] font-medium text-rose-500">将删除</div>
+              )}
+              {isAgentMoving && (
+                <div className="mt-0.5 text-[10px] font-medium text-sky-600">将移动</div>
+              )}
             </div>
           )}
         </div>

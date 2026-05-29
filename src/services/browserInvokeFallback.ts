@@ -1,4 +1,5 @@
 import type { OutlineDocument, RecentDocItem, SearchResult } from '../types/document'
+import type { AgentStatus } from '../features/agent/agentTypes'
 import type { AppSettings } from '../types/settings'
 import { DEFAULT_SETTINGS } from '../types/settings'
 import type {
@@ -46,6 +47,14 @@ let recentDocs: RecentDocItem[] = []
 let libraryDocs: LibraryDocumentItem[] = []
 let refreshStatus: LibraryRefreshStatus | null = null
 let settings: AppSettings = DEFAULT_SETTINGS
+let agentStatus: AgentStatus = {
+  available: false,
+  running: false,
+  streaming: false,
+  sessionKey: null,
+  model: null,
+  error: '浏览器预览模式不支持 Pi 文档助理',
+}
 
 function searchNode(
   node: OutlineDocument['root'],
@@ -156,6 +165,31 @@ export async function browserInvokeFallback<T>(command: string, args?: CommandAr
         settings = args.settings as AppSettings
       }
       return settings as T
+    case 'agent_start_session':
+      agentStatus = {
+        ...agentStatus,
+        running: false,
+        streaming: false,
+        sessionKey: String(args?.sessionKey ?? ''),
+      }
+      return undefined as T
+    case 'agent_send_message':
+      agentStatus = {
+        ...agentStatus,
+        error: '浏览器预览模式不支持 Pi 文档助理',
+      }
+      return undefined as T
+    case 'agent_abort':
+      agentStatus = {
+        ...agentStatus,
+        streaming: false,
+      }
+      return undefined as T
+    case 'agent_get_status':
+      return agentStatus as T
+    case 'agent_save_api_key':
+    case 'agent_delete_api_key':
+      return undefined as T
     case 'get_library_docs':
     case 'refresh_library':
     case 'rebuild_library_index':

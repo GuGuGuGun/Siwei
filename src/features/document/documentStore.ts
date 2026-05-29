@@ -2,6 +2,12 @@ import { create } from 'zustand'
 import { MindMapLayoutPosition, OutlineDocument, OutlineNode } from '../../types/document'
 import * as api from '../../services/siweiApi'
 import { generateId } from '../../utils/id'
+import { applyAgentChangePlanToDocument, createDocumentSnapshotKey } from '../agent/agentChangePlan'
+import type {
+  AgentChangePlan,
+  AgentMindMapInsertNodesParams,
+  AgentMindMapNodeInput,
+} from '../agent/agentTypes'
 import {
   CheckedFilter,
   OutlineFilterState,
@@ -109,6 +115,10 @@ interface DocumentState {
   setFilterChecked: (checked: CheckedFilter) => void
   clearFilters: () => void
   focusNode: (nodeId: string) => void
+  applyAgentChangePlan: (plan: AgentChangePlan) => { ok: true } | { ok: false; error: string }
+  insertAgentMindMapNodes: (
+    params: AgentMindMapInsertNodesParams,
+  ) => { ok: true; insertedNodeIds: string[] } | { ok: false; error: string }
 
   // History actions
   undo: () => void
@@ -231,6 +241,12 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     return trimmed.length > 0 ? trimmed : undefined
   }
 
+  const normalizeOptionalAgentText = (value: string | null | undefined): string | undefined => {
+    if (value === null || value === undefined) return undefined
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : undefined
+  }
+
   const areTagsEqual = (left?: string[], right?: string[]): boolean => {
     return JSON.stringify(left ?? undefined) === JSON.stringify(right ?? undefined)
   }
@@ -281,6 +297,27 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       createdAt: now,
       updatedAt: now,
       children: [],
+    }
+  }
+
+  const createOutlineNodeFromAgentInput = (
+    input: AgentMindMapNodeInput,
+    now: number,
+  ): OutlineNode | null => {
+    const text = input.text.trim()
+    if (!text) return null
+    const children = (input.children ?? []).map((child) => createOutlineNodeFromAgentInput(child, now))
+    if (children.some((node) => node === null)) return null
+
+    return {
+      id: generateId(),
+      text,
+      note: normalizeOptionalAgentText(input.note),
+      checked: input.checked ?? undefined,
+      tags: normalizeTagList(input.tags ?? []),
+      createdAt: now,
+      updatedAt: now,
+      children: children.filter((node): node is OutlineNode => node !== null),
     }
   }
 
@@ -1189,6 +1226,87 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           set({ focusedNodeId: null })
         }
       }, 1600)
+    },
+
+    applyAgentChangePlan: (plan) => {
+      const before = beginMutation()
+      const { currentDoc } = get()
+      if (!currentDoc || !before) return { ok: false, error: '当前没有可修改的文档' }
+
+      const result = applyAgentChangePlanToDocument(currentDoc, plan)
+      if (!result.ok) return result
+
+      set((state) => ({
+        currentDoc: result.document,
+        selectedNodeId: state.selectedNodeId,
+        isDirty: state.cleanSnapshotKey === null
+          ? true
+          : createSnapshot(result.document, state.selectedNodeId, state.collapsedNodeIds).key !== state.cleanSnapshotKey,
+      }))
+      setHistoryAfterMutation(before)
+
+      return { ok: true }
+    },
+
+    insertAgentMindMapNodes: (params) => {
+      const before = beginMutation()
+      const { currentDoc, collapsedNodeIds } = get()
+      if (!currentDoc || !before) return { ok: false, error: '当前没有可修改的文档' }
+      if (params.documentId !== currentDoc.id) {
+        return { ok: false, error: 'Agent 工具请求不属于当前文档' }
+      }
+      if (params.snapshotKey !== createDocumentSnapshotKey(currentDoc)) {
+        return { ok: false, error: '当前文档已变化，请让助理重新生成节点' }
+      }
+      if (!Array.isArray(params.nodes) || params.nodes.length === 0) {
+        return { ok: false, error: 'Agent 工具请求没有包含节点' }
+      }
+
+      const parentPath = findPath(currentDoc.root, params.parentNodeId)
+      if (!parentPath) return { ok: false, error: `父节点不存在: ${params.parentNodeId}` }
+      const parent = getNodeAtPath(currentDoc.root, parentPath)
+      const index = params.index ?? parent.children.length
+      if (index < 0 || index > parent.children.length) {
+        return { ok: false, error: `插入位置无效: ${params.parentNodeId}[${index}]` }
+      }
+
+      const now = Date.now()
+      const nodes = params.nodes
+        .map((node) => createOutlineNodeFromAgentInput(node, now))
+        .filter((node): node is OutlineNode => node !== null)
+      if (nodes.length !== params.nodes.length) {
+        return { ok: false, error: 'Agent 工具请求包含空节点标题' }
+      }
+
+      const newRoot = updateNodeAtPath(currentDoc.root, parentPath, (node) => {
+        const children = [...node.children]
+        children.splice(index, 0, ...nodes)
+        return {
+          ...node,
+          children,
+          updatedAt: now,
+        }
+      })
+      const newCollapsedIds = new Set(collapsedNodeIds)
+      newCollapsedIds.delete(params.parentNodeId)
+      const updatedDoc = {
+        ...currentDoc,
+        root: newRoot,
+        updatedAt: now,
+      }
+      const insertedNodeIds = nodes.map((node) => node.id)
+
+      set((state) => ({
+        currentDoc: updatedDoc,
+        collapsedNodeIds: newCollapsedIds,
+        selectedNodeId: insertedNodeIds[insertedNodeIds.length - 1] ?? state.selectedNodeId,
+        isDirty: state.cleanSnapshotKey === null
+          ? true
+          : createSnapshot(updatedDoc, state.selectedNodeId, newCollapsedIds).key !== state.cleanSnapshotKey,
+      }))
+      setHistoryAfterMutation(before)
+
+      return { ok: true, insertedNodeIds }
     },
 
     undo: () => {

@@ -1,12 +1,13 @@
 {
   "name": "siwei",
-  "version": "0.8.0",
+  "version": "0.10.0",
   "private": true,
   "author": "GuGuGuGun",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc && vite build",
+    "build:sidecar": "node scripts/build-pi-sidecar.mjs",
     "test": "vitest run && node --test scripts/*.node-test.mjs",
     "test:e2e": "playwright test",
     "generate:library-fixtures": "node scripts/generate-library-fixtures.mjs",
@@ -15,6 +16,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
+    "@earendil-works/pi-agent-core": "^0.75.5",
     "dagre": "^0.8.5",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",

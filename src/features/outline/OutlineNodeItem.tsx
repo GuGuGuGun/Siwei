@@ -4,6 +4,7 @@ import { useDocumentStore } from '../document/documentStore'
 import { toast } from '../../components/common/Toast'
 import { NodeNoteEditor } from './NodeNoteEditor'
 import { NodeTagEditor } from './NodeTagEditor'
+import type { AgentInsertionPreview, AgentNodePreview } from '../agent/agentTypes'
 
 interface OutlineNodeItemProps {
   node: OutlineNode
@@ -12,6 +13,8 @@ interface OutlineNodeItemProps {
   parentId: string | null
   isSelected: boolean
   isCollapsed: boolean
+  agentPreview?: AgentNodePreview
+  agentInsertions?: AgentInsertionPreview[]
   onNavigate: (direction: 'up' | 'down') => void
   onNodeContextMenu?: (event: React.MouseEvent, nodeId: string) => void
 }
@@ -71,6 +74,8 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   depth,
   isSelected,
   isCollapsed,
+  agentPreview,
+  agentInsertions = [],
   onNavigate,
   onNodeContextMenu,
 }) => {
@@ -260,6 +265,9 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   }
 
   const hasChildren = node.children && node.children.length > 0
+  const isAgentDeleting = agentPreview?.kind === 'delete'
+  const isAgentMoving = agentPreview?.kind === 'move'
+  const agentTextPreview = agentPreview?.kind === 'update' ? agentPreview.text : undefined
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
     e.stopPropagation()
@@ -286,11 +294,18 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   }
 
   return (
+    <>
     <div
       ref={containerRef}
       data-node-id={node.id}
       className={`group relative flex items-center h-9 px-2 rounded-lg transition-all duration-200 border ${
-        isSelected
+        isAgentDeleting
+          ? 'bg-rose-50/80 border-rose-200 text-rose-800'
+          : agentTextPreview
+            ? 'bg-emerald-50/80 border-emerald-200 text-zinc-900 ring-1 ring-emerald-200/70'
+          : isAgentMoving
+            ? 'bg-sky-50/80 border-sky-200 text-zinc-900 ring-1 ring-sky-200/70'
+          : isSelected
           ? 'bg-[#FCFAF2] border-dashed border-amber-900/30 text-zinc-900 shadow-fabric'
           : isFocusedNode
             ? 'bg-amber-50 border-amber-300/70 text-zinc-900 shadow-fabric'
@@ -374,7 +389,7 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
 
       {/* Text Node */}
       <div className="flex-1 min-w-0 pl-1.5">
-        {isSelected ? (
+        {isSelected && !agentTextPreview ? (
           <input
             ref={inputRef}
             type="text"
@@ -389,12 +404,31 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
             placeholder="输入编织内容..."
           />
         ) : (
-          <div
-            className={`text-sm select-none leading-relaxed truncate font-medium ${
-              node.checked ? 'text-zinc-400 line-through' : 'text-zinc-800'
-            }`}
-          >
-            {node.text || <span className="text-zinc-400 italic font-normal">空白织线</span>}
+          <div className="min-w-0">
+            <div
+              className={`text-sm select-none leading-relaxed truncate font-medium ${
+                isAgentDeleting
+                  ? 'text-rose-700 line-through'
+                  : agentTextPreview
+                    ? 'text-zinc-400 line-through'
+                    : node.checked
+                      ? 'text-zinc-400 line-through'
+                      : 'text-zinc-800'
+              }`}
+            >
+              {node.text || <span className="text-zinc-400 italic font-normal">空白织线</span>}
+            </div>
+            {agentTextPreview && (
+              <div className="truncate text-sm font-medium leading-relaxed text-emerald-700">
+                {agentTextPreview}
+              </div>
+            )}
+            {isAgentDeleting && (
+              <div className="text-[10px] font-medium leading-4 text-rose-500">将删除</div>
+            )}
+            {isAgentMoving && (
+              <div className="text-[10px] font-medium leading-4 text-sky-600">将移动</div>
+            )}
           </div>
         )}
       </div>
@@ -457,5 +491,19 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
         </div>
       )}
     </div>
+    {agentInsertions.map((insertion) => (
+      <div
+        key={insertion.node.id}
+        data-agent-insertion-parent-id={node.id}
+        className="ml-8 flex h-8 items-center rounded-lg border border-dashed border-emerald-300 bg-emerald-50/70 px-3 text-sm font-medium text-emerald-700"
+        style={{ marginLeft: `${(depth + 1) * 24 + 28}px` }}
+      >
+        <span className="mr-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+          将插入
+        </span>
+        <span className="truncate">{insertion.node.text || '空白节点'}</span>
+      </div>
+    ))}
+    </>
   )
 }

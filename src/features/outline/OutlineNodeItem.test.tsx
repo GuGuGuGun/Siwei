@@ -1,6 +1,8 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createDocument } from '../../test/fixtures'
+import { createDocumentSnapshotKey } from '../agent/agentChangePlan'
+import { useAgentStore } from '../agent/agentStore'
 import { useDocumentStore } from '../document/documentStore'
 import { OutlineEditor } from './OutlineEditor'
 import { OutlineNodeItem } from './OutlineNodeItem'
@@ -23,6 +25,12 @@ describe('OutlineNodeItem', () => {
       redoStack: [],
       cleanSnapshotKey: null,
       activeTextEditSession: null,
+    })
+    useAgentStore.setState({
+      pendingPlan: null,
+      error: null,
+      messages: [],
+      isSending: false,
     })
   })
 
@@ -84,5 +92,78 @@ describe('OutlineNodeItem', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
 
     expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual(['node-2'])
+  })
+
+  it('shows assistant changes directly inside outline nodes', () => {
+    const doc = useDocumentStore.getState().currentDoc!
+    act(() => {
+      useAgentStore.getState().setPendingPlan({
+        schemaVersion: 1,
+        contextScope: 'currentDocument',
+        documentId: doc.id,
+        snapshotKey: createDocumentSnapshotKey(doc),
+        summary: '插入节点',
+        rationale: '测试预览',
+        riskLevel: 'low',
+        references: [],
+        operations: [
+          {
+            type: 'updateNode',
+            nodeId: 'node-2',
+            text: '助理改写',
+          },
+          {
+            type: 'insertNode',
+            parentNodeId: 'node-1',
+            index: 1,
+            node: { id: 'agent-node', text: '新增节点' },
+          },
+        ],
+      })
+    })
+
+    render(<OutlineEditor />)
+
+    expect(screen.getByText('助理改写')).toBeInTheDocument()
+    expect(screen.getByText('新增节点')).toBeInTheDocument()
+    expect(screen.getByText('将插入')).toBeInTheDocument()
+  })
+
+  it('shows root insertion previews when the outline is otherwise empty', () => {
+    const doc = createDocument()
+    const emptyDoc = {
+      ...doc,
+      root: {
+        ...doc.root,
+        children: [],
+      },
+    }
+    useDocumentStore.setState({ currentDoc: emptyDoc })
+    act(() => {
+      useAgentStore.getState().setPendingPlan({
+        schemaVersion: 1,
+        contextScope: 'currentDocument',
+        documentId: emptyDoc.id,
+        snapshotKey: createDocumentSnapshotKey(emptyDoc),
+        summary: '根节点插入',
+        rationale: '测试预览',
+        riskLevel: 'low',
+        references: [],
+        operations: [
+          {
+            type: 'insertNode',
+            parentNodeId: emptyDoc.root.id,
+            index: 0,
+            node: { id: 'agent-node', text: '计算器开发' },
+          },
+        ],
+      })
+    })
+
+    render(<OutlineEditor />)
+
+    expect(screen.getByText('计算器开发')).toBeInTheDocument()
+    expect(screen.getByText('将插入')).toBeInTheDocument()
+    expect(screen.queryByText('点击缝入第一个节点')).not.toBeInTheDocument()
   })
 })

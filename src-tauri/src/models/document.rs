@@ -251,7 +251,8 @@ mod tests {
                 "updatedAt": 1,
                 "children": []
             }
-        })).unwrap();
+        }))
+        .unwrap();
 
         assert_eq!(doc.version, 1);
         assert!(doc.mind_map_layout.is_none());

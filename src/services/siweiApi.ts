@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 
 import type { OutlineDocument, RecentDocItem, SearchResult } from '../types/document'
 import type { AppSettings } from '../types/settings'
+import type { AgentDocumentContext, AgentStatus } from '../features/agent/agentTypes'
 import type {
   LibraryDocumentItem,
   LibraryDocumentQuery,
@@ -85,6 +86,33 @@ export function getSettings(): Promise<AppSettings> {
 
 export function updateSettings(settings: AppSettings): Promise<AppSettings> {
   return callCommand('update_settings', { settings })
+}
+
+export function agentStartSession(sessionKey: string): Promise<void> {
+  return callCommand('agent_start_session', { sessionKey })
+}
+
+export function agentSendMessage(
+  message: string,
+  documentContext: AgentDocumentContext,
+): Promise<void> {
+  return callCommand('agent_send_message', { message, documentContext })
+}
+
+export function agentAbort(): Promise<void> {
+  return callCommand('agent_abort')
+}
+
+export function agentGetStatus(): Promise<AgentStatus> {
+  return callCommand('agent_get_status')
+}
+
+export function agentSaveApiKey(provider: string, apiKey: string): Promise<void> {
+  return callCommand('agent_save_api_key', { provider, apiKey })
+}
+
+export function agentDeleteApiKey(provider: string): Promise<void> {
+  return callCommand('agent_delete_api_key', { provider })
 }
 
 export function getLibraryDocs(): Promise<LibraryDocumentItem[]> {

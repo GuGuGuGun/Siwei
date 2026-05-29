@@ -15,8 +15,8 @@ use crate::{
         LibraryLocation, LibraryLocationSource, LibraryMatchedField, LibraryNodeIndexItem,
         LibraryPage, LibraryRefreshJobStatus, LibraryRefreshStatus, LibrarySearchMatchSource,
         LibrarySearchQuery, LibrarySearchResult, LibrarySortBy, LibrarySortDirection,
-        LibraryTagQuery, LibraryTagSummary, LibraryTaskQuery, LibraryTaskSummary,
-        OutlineDocument, OutlineNode,
+        LibraryTagQuery, LibraryTagSummary, LibraryTaskQuery, LibraryTaskSummary, OutlineDocument,
+        OutlineNode,
     },
     services::file_service,
     utils::error::{AppError, AppResult},
@@ -68,10 +68,16 @@ pub fn query_library_docs(
     if let Some(status) = query.status.as_deref().and_then(parse_status_filter) {
         items.retain(|item| item.status == status);
     }
-    if let Some(keyword) = query.keyword.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(keyword) = query
+        .keyword
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         let keyword = keyword.to_lowercase();
         items.retain(|item| {
-            item.title.to_lowercase().contains(&keyword) || item.path.to_lowercase().contains(&keyword)
+            item.title.to_lowercase().contains(&keyword)
+                || item.path.to_lowercase().contains(&keyword)
         });
     }
 
@@ -94,8 +100,11 @@ pub fn add_library_doc(
 
 pub fn remove_library_doc(app_data_dir: impl AsRef<Path>, path: &str) -> AppResult<()> {
     let conn = open_database(app_data_dir.as_ref())?;
-    conn.execute("DELETE FROM library_documents WHERE path = ?1", params![path])
-        .map_err(db_error)?;
+    conn.execute(
+        "DELETE FROM library_documents WHERE path = ?1",
+        params![path],
+    )
+    .map_err(db_error)?;
     Ok(())
 }
 
@@ -138,18 +147,36 @@ pub fn query_library_search(
 ) -> AppResult<LibraryPage<LibrarySearchResult>> {
     let normalized_query = query.query.trim();
     if normalized_query.is_empty() {
-        return Ok(LibraryPage { items: Vec::new(), has_more: false, total: Some(0) });
+        return Ok(LibraryPage {
+            items: Vec::new(),
+            has_more: false,
+            total: Some(0),
+        });
     }
 
     let conn = open_database(app_data_dir.as_ref())?;
     let status_filter = parse_search_status_filter(query.document_status.as_deref());
     let field_filter = parse_field_filter(query.matched_field.as_deref());
     let mut results = BTreeMap::<String, LibrarySearchResult>::new();
-    search_library_fts(&conn, normalized_query, status_filter.as_deref(), field_filter.as_ref(), &mut results)?;
-    search_library_like(&conn, normalized_query, status_filter.as_deref(), field_filter.as_ref(), &mut results)?;
+    search_library_fts(
+        &conn,
+        normalized_query,
+        status_filter.as_deref(),
+        field_filter.as_ref(),
+        &mut results,
+    )?;
+    search_library_like(
+        &conn,
+        normalized_query,
+        status_filter.as_deref(),
+        field_filter.as_ref(),
+        &mut results,
+    )?;
     let mut items: Vec<_> = results.into_values().collect();
     items.sort_by(|left, right| {
-        right.score.cmp(&left.score)
+        right
+            .score
+            .cmp(&left.score)
             .then_with(|| right.document_path.cmp(&left.document_path))
             .then_with(|| left.node_id.cmp(&right.node_id))
     });
@@ -197,7 +224,9 @@ pub fn query_library_tags(
     let mut tags = get_library_tags(app_data_dir)?;
     match query.sort_by.as_deref() {
         Some("nodeCount") => tags.sort_by(|left, right| {
-            left.node_count.cmp(&right.node_count).then_with(|| left.tag.to_lowercase().cmp(&right.tag.to_lowercase()))
+            left.node_count
+                .cmp(&right.node_count)
+                .then_with(|| left.tag.to_lowercase().cmp(&right.tag.to_lowercase()))
         }),
         _ => tags.sort_by(|left, right| left.tag.to_lowercase().cmp(&right.tag.to_lowercase())),
     }
@@ -222,7 +251,11 @@ pub fn query_library_tasks(
         Some("unchecked") => Some(false),
         _ => None,
     };
-    page_items(query_tasks(&conn, None, checked)?, query.limit, query.offset)
+    page_items(
+        query_tasks(&conn, None, checked)?,
+        query.limit,
+        query.offset,
+    )
 }
 
 pub fn rebuild_library_index(
@@ -293,7 +326,9 @@ pub fn start_library_refresh(app_data_dir: impl AsRef<Path>) -> AppResult<String
     let paths = all_document_paths(&conn)?;
     drop(conn);
 
-    let mut guard = refresh_job_slot().lock().map_err(|_| AppError::Database("刷新任务状态不可写".to_string()))?;
+    let mut guard = refresh_job_slot()
+        .lock()
+        .map_err(|_| AppError::Database("刷新任务状态不可写".to_string()))?;
     if let Some(job) = guard.as_ref() {
         if matches!(
             job.status,
@@ -328,7 +363,11 @@ pub fn start_library_refresh(app_data_dir: impl AsRef<Path>) -> AppResult<String
     Ok(job_id)
 }
 
-fn spawn_refresh_worker(app_data_dir: PathBuf, job_id: String, paths: Vec<String>) -> AppResult<()> {
+fn spawn_refresh_worker(
+    app_data_dir: PathBuf,
+    job_id: String,
+    paths: Vec<String>,
+) -> AppResult<()> {
     thread::Builder::new()
         .name("siwei-library-refresh".to_string())
         .spawn(move || {
@@ -340,11 +379,7 @@ fn spawn_refresh_worker(app_data_dir: PathBuf, job_id: String, paths: Vec<String
         .map_err(|error| AppError::Database(format!("刷新任务启动失败: {error}")))
 }
 
-fn run_refresh_job(
-    app_data_dir: PathBuf,
-    job_id: String,
-    paths: Vec<String>,
-) -> AppResult<()> {
+fn run_refresh_job(app_data_dir: PathBuf, job_id: String, paths: Vec<String>) -> AppResult<()> {
     update_refresh_job(&job_id, |job| {
         if matches!(job.status, LibraryRefreshJobStatus::Queued) {
             job.status = LibraryRefreshJobStatus::Running;
@@ -361,11 +396,22 @@ fn run_refresh_job(
             continue;
         }
         match refresh_document_by_path(&mut conn, &path) {
-            Ok(item) if matches!(item.status, LibraryDocumentStatus::Ready | LibraryDocumentStatus::Stale) => {
+            Ok(item)
+                if matches!(
+                    item.status,
+                    LibraryDocumentStatus::Ready | LibraryDocumentStatus::Stale
+                ) =>
+            {
                 increment_refresh_success(&job_id)?;
             }
             Ok(item) => {
-                increment_refresh_failure(&job_id, item.document_id, item.path, item.status, item.error_summary)?;
+                increment_refresh_failure(
+                    &job_id,
+                    item.document_id,
+                    item.path,
+                    item.status,
+                    item.error_summary,
+                )?;
             }
             Err(error) => {
                 increment_refresh_task_failure(&job_id, error.user_message())?;
@@ -400,7 +446,10 @@ pub fn cancel_library_refresh(
         .as_mut()
         .filter(|job| job.job_id == job_id)
         .ok_or_else(|| AppError::Validation(format!("刷新任务不存在: {job_id}")))?;
-    if matches!(job.status, LibraryRefreshJobStatus::Queued | LibraryRefreshJobStatus::Running) {
+    if matches!(
+        job.status,
+        LibraryRefreshJobStatus::Queued | LibraryRefreshJobStatus::Running
+    ) {
         job.status = LibraryRefreshJobStatus::CancelRequested;
     }
     Ok(job.clone())
@@ -676,9 +725,7 @@ fn list_documents(conn: &Connection) -> AppResult<Vec<LibraryDocumentItem>> {
              ORDER BY indexed_at DESC, lower(title)",
         )
         .map_err(db_error)?;
-    let rows = stmt
-        .query_map([], read_stored_document)
-        .map_err(db_error)?;
+    let rows = stmt.query_map([], read_stored_document).map_err(db_error)?;
 
     let mut items = Vec::new();
     for row in rows {
@@ -688,7 +735,11 @@ fn list_documents(conn: &Connection) -> AppResult<Vec<LibraryDocumentItem>> {
     Ok(items)
 }
 
-fn page_items<T>(items: Vec<T>, limit: Option<u32>, offset: Option<u32>) -> AppResult<LibraryPage<T>> {
+fn page_items<T>(
+    items: Vec<T>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> AppResult<LibraryPage<T>> {
     let total = items.len();
     let offset = offset.unwrap_or(0) as usize;
     let limit = limit.unwrap_or(50).clamp(1, 200) as usize;
@@ -746,9 +797,7 @@ fn stored_document_to_item(
         && current_mtime > stored.file_mtime
     {
         LibraryDocumentStatus::Stale
-    } else if matches!(stored.status, LibraryDocumentStatus::Ready)
-        && current_mtime.is_none()
-    {
+    } else if matches!(stored.status, LibraryDocumentStatus::Ready) && current_mtime.is_none() {
         LibraryDocumentStatus::Missing
     } else {
         stored.status
@@ -917,11 +966,17 @@ struct SearchRow {
     status: LibraryDocumentStatus,
 }
 
-fn merge_search_row(results: &mut BTreeMap<String, LibrarySearchResult>, row: SearchRow, query: &str) {
+fn merge_search_row(
+    results: &mut BTreeMap<String, LibrarySearchResult>,
+    row: SearchRow,
+    query: &str,
+) {
     let key = format!(
         "{}:{}",
         row.document_id,
-        row.node_id.clone().unwrap_or_else(|| "__title__".to_string())
+        row.node_id
+            .clone()
+            .unwrap_or_else(|| "__title__".to_string())
     );
     let ranges = highlight_ranges(&row.text, query);
     let score = field_weight(&row.source) + ranges.len() as i32 * 10;
@@ -968,7 +1023,12 @@ fn search_row_matches_filters(
 ) -> bool {
     let status_matches = status_filter
         .map(|statuses| statuses.contains(&row.status))
-        .unwrap_or_else(|| matches!(row.status, LibraryDocumentStatus::Ready | LibraryDocumentStatus::Stale));
+        .unwrap_or_else(|| {
+            matches!(
+                row.status,
+                LibraryDocumentStatus::Ready | LibraryDocumentStatus::Stale
+            )
+        });
     let field_matches = field_filter
         .map(|field| field == &row.source)
         .unwrap_or(true);
@@ -1042,9 +1102,7 @@ fn highlight_ranges(value: &str, query: &str) -> Vec<LibraryHighlightRange> {
 }
 
 fn utf16_offset(value: &str, byte_offset: usize) -> u32 {
-    value[..byte_offset.min(value.len())]
-        .encode_utf16()
-        .count() as u32
+    value[..byte_offset.min(value.len())].encode_utf16().count() as u32
 }
 
 fn refresh_job_slot() -> &'static Mutex<Option<LibraryRefreshStatus>> {
@@ -1192,7 +1250,11 @@ fn query_tasks(
         None => ("WHERE n.checked IS NOT NULL".to_string(), Vec::new()),
     };
     if let Some(checked) = checked_filter {
-        where_clause.push_str(if checked { " AND n.checked = 1" } else { " AND n.checked = 0" });
+        where_clause.push_str(if checked {
+            " AND n.checked = 1"
+        } else {
+            " AND n.checked = 0"
+        });
     }
     let sql = format!(
         "SELECT d.document_id, d.title, d.path, n.node_id, n.text, n.checked, n.parent_path, d.status
@@ -1491,9 +1553,14 @@ mod tests {
         let chinese = library_service::search_library(app_dir.path(), "中文检索").unwrap();
         let tag = library_service::search_library(app_dir.path(), "后端").unwrap();
 
-        assert_eq!(english[0].match_sources, vec![LibrarySearchMatchSource::Title]);
+        assert_eq!(
+            english[0].match_sources,
+            vec![LibrarySearchMatchSource::Title]
+        );
         assert_eq!(chinese[0].node_id.as_deref(), Some("task"));
-        assert!(tag[0].match_sources.contains(&LibrarySearchMatchSource::Tag));
+        assert!(tag[0]
+            .match_sources
+            .contains(&LibrarySearchMatchSource::Tag));
     }
 
     #[test]
@@ -1544,9 +1611,15 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(page.items[0].matched_fields.as_ref().unwrap(), &vec![LibrarySearchMatchSource::Content]);
+        assert_eq!(
+            page.items[0].matched_fields.as_ref().unwrap(),
+            &vec![LibrarySearchMatchSource::Content]
+        );
         assert_eq!(page.items[0].highlight_ranges.as_ref().unwrap()[0].start, 2);
-        assert_eq!(page.items[0].location.as_ref().unwrap().node_id.as_deref(), Some("task"));
+        assert_eq!(
+            page.items[0].location.as_ref().unwrap().node_id.as_deref(),
+            Some("task")
+        );
     }
 
     #[test]
@@ -1559,7 +1632,13 @@ mod tests {
         let tags = library_service::get_library_tags(app_dir.path()).unwrap();
         let tasks = library_service::get_library_tasks(app_dir.path()).unwrap();
 
-        assert_eq!(tags.iter().find(|tag| tag.tag == "后端").unwrap().node_count, 1);
+        assert_eq!(
+            tags.iter()
+                .find(|tag| tag.tag == "后端")
+                .unwrap()
+                .node_count,
+            1
+        );
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].node_id, "task");
         assert!(!tasks[0].checked);
@@ -1597,11 +1676,15 @@ mod tests {
         library_service::add_library_doc(app_dir.path(), &doc_path).unwrap();
 
         fs::remove_file(&doc_path).unwrap();
-        let missing = library_service::refresh_library_doc(app_dir.path(), &doc_path.to_string_lossy()).unwrap();
+        let missing =
+            library_service::refresh_library_doc(app_dir.path(), &doc_path.to_string_lossy())
+                .unwrap();
         assert_eq!(missing.status, LibraryDocumentStatus::Missing);
 
         fs::write(&doc_path, "{ broken").unwrap();
-        let invalid = library_service::refresh_library_doc(app_dir.path(), &doc_path.to_string_lossy()).unwrap();
+        let invalid =
+            library_service::refresh_library_doc(app_dir.path(), &doc_path.to_string_lossy())
+                .unwrap();
         assert_eq!(invalid.status, LibraryDocumentStatus::Invalid);
     }
 
