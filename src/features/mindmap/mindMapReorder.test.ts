@@ -74,4 +74,28 @@ describe('mindMapReorder', () => {
       targetChildCount: 0,
     })).toBeNull()
   })
+
+  it('rejects root moves and drops onto descendants', () => {
+    expect(resolveMindMapDropMove({
+      sourceNodeId: 'root',
+      targetNodeId: 'node-1',
+      zone: 'child',
+      targetParentId: 'root',
+      targetIndex: 0,
+      targetChildCount: 0,
+      rootNodeId: 'root',
+      descendantNodeIds: new Set<string>(),
+    })).toBeNull()
+
+    expect(resolveMindMapDropMove({
+      sourceNodeId: 'node-1',
+      targetNodeId: 'node-1-1',
+      zone: 'child',
+      targetParentId: 'node-1',
+      targetIndex: 0,
+      targetChildCount: 0,
+      rootNodeId: 'root',
+      descendantNodeIds: new Set(['node-1-1']),
+    })).toBeNull()
+  })
 })

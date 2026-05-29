@@ -6,9 +6,17 @@ import type { AgentNodePreview } from '../agent/agentTypes'
 
 export interface MindMapNodeData {
   label: string
+  depth: number
   childCount: number
+  visibleChildCount: number
   collapsed: boolean
+  focused: boolean
+  matched: boolean
+  activeMatch: boolean
+  hasTags: boolean
+  exportClean?: boolean
   dropState?: 'before' | 'child' | 'after' | null
+  invalidDrop?: boolean
   agentPreview?: AgentNodePreview
   agentInsertion?: boolean
   checked?: boolean
@@ -30,6 +38,7 @@ export interface MindMapNodeData {
 export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, selected, type }) => {
   const isRoot = type === 'root'
   const hasChildren = data.childCount > 0
+  const visualDepth = Math.min(data.depth, 3)
   const isAgentDeleting = data.agentPreview?.kind === 'delete'
   const isAgentMoving = data.agentPreview?.kind === 'move'
   const agentTextPreview = data.agentPreview?.kind === 'update' ? data.agentPreview.text : undefined
@@ -46,15 +55,24 @@ export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, se
           ? 'border-emerald-300 bg-emerald-50 ring-4 ring-emerald-500/10'
         : isAgentMoving
           ? 'border-sky-300 bg-sky-50 ring-4 ring-sky-500/10'
+        : data.activeMatch && !data.exportClean
+          ? 'scale-[1.03] border-sky-500 bg-sky-50 ring-4 ring-sky-500/15'
+        : selected && !data.exportClean
+          ? 'scale-[1.03] border-dashed border-amber-600 bg-[#FCFAF0] ring-4 ring-amber-600/5'
+        : data.matched && !data.exportClean
+          ? 'border-sky-300 bg-sky-50'
+        : data.focused
+          ? 'border-zinc-500 bg-white ring-4 ring-zinc-500/10'
+        : data.invalidDrop
+          ? 'border-rose-300 bg-rose-50 ring-4 ring-rose-500/10'
         : data.dropState === 'child'
           ? 'scale-[1.02] border-emerald-500 bg-emerald-50 ring-4 ring-emerald-500/10'
-          : selected
-          ? 'scale-[1.03] border-dashed border-amber-600 bg-[#FCFAF0] ring-4 ring-amber-600/5'
           : 'border-dashed border-amber-900/20 bg-[#FAF6EC] hover:border-amber-900/40 hover:bg-[#FAF5E6]'
       }`}
     >
       {data.dropState === 'before' && <div className="absolute -top-2 left-2 right-2 h-0.5 rounded bg-emerald-600" />}
       {data.dropState === 'after' && <div className="absolute -bottom-2 left-2 right-2 h-0.5 rounded bg-emerald-600" />}
+      {data.invalidDrop && <div className="absolute -top-2 left-2 right-2 h-0.5 rounded bg-rose-500" />}
       {!isRoot && (
         <Handle
           type="target"
@@ -95,12 +113,16 @@ export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, se
             />
           ) : (
             <div>
-              <div className={`break-words text-xs font-semibold leading-relaxed ${
+              <div className={`break-words text-xs leading-relaxed ${
                 isAgentDeleting
-                  ? 'text-rose-700 line-through'
+                  ? 'font-semibold text-rose-700 line-through'
                   : agentTextPreview
-                    ? 'text-zinc-400 line-through'
-                    : 'text-zinc-800'
+                    ? 'font-semibold text-zinc-400 line-through'
+                    : visualDepth === 0
+                      ? 'text-sm font-bold text-zinc-900'
+                      : visualDepth === 1
+                        ? 'font-semibold text-zinc-800'
+                        : 'font-medium text-zinc-700'
               }`}>
                 {data.label || <span className="font-normal italic text-zinc-400">空白节点</span>}
               </div>
@@ -117,6 +139,9 @@ export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, se
               )}
               {isAgentMoving && (
                 <div className="mt-0.5 text-[10px] font-medium text-sky-600">将移动</div>
+              )}
+              {data.hasTags && !data.exportClean && (
+                <div className="mt-1 text-[10px] font-medium text-amber-800/55">含标签</div>
               )}
             </div>
           )}
@@ -140,7 +165,10 @@ export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, se
       </div>
 
       {data.collapsed && hasChildren && (
-        <div className="mt-1 text-[10px] font-medium text-amber-900/50">{data.childCount} 个子节点</div>
+        <div className="mt-1 text-[10px] font-medium text-amber-900/50">
+          {data.childCount} 个子节点
+          {data.visibleChildCount !== data.childCount && `，当前显示 ${data.visibleChildCount} 个`}
+        </div>
       )}
 
       <Handle

@@ -16,6 +16,7 @@ pub fn handlers() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sy
         import_export::import_markdown,
         import_export::export_json,
         import_export::import_json,
+        import_export::export_mindmap_asset,
         recent::get_recent_docs,
         recent::add_recent_doc,
         recent::remove_recent_doc,

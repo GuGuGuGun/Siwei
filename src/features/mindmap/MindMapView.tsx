@@ -4,12 +4,13 @@ import ReactFlow, {
   Controls,
   Background,
   Node,
+  ReactFlowInstance,
   useNodesState,
   useEdgesState,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 
-import { FileText, GitBranch, LayoutDashboard, Move } from 'lucide-react'
+import { FileText } from 'lucide-react'
 import { useDocumentStore } from '../document/documentStore'
 import { createAgentDocumentPreview } from '../agent/agentChangePlan'
 import { useAgentStore } from '../agent/agentStore'
@@ -20,6 +21,20 @@ import { MindMapNode, MindMapNodeData } from './MindMapNode'
 import { MindMapContextMenu } from './MindMapContextMenu'
 import { MindMapDeleteDialog } from './MindMapDeleteDialog'
 import { findNodeById, formatDeleteConfirmation } from './mindMapActions'
+import { MindMapToolbar, MindMapMode } from './MindMapToolbar'
+import { MindMapSearchBar } from './MindMapSearchBar'
+import { useMindMapExport } from './useMindMapExport'
+import { useMindMapFocus } from './useMindMapFocus'
+import { useMindMapSearch } from './useMindMapSearch'
+import { useMindMapExportRegistration } from './useMindMapExportRegistration'
+import {
+  getChildIndexMap,
+  getDescendantIds,
+  getNodeSubtree,
+  getNodeDepthMap,
+  getParentIdMap,
+  getVisibleMindMapNodeIds,
+} from './mindMapSelectors'
 import {
   DEFAULT_MIND_MAP_NODE_WIDTH,
   getMindMapDropZone,
@@ -33,8 +48,7 @@ interface MindMapEditingState {
   nodeId: string
 }
 
-type MindMapMode = 'layout' | 'reorganize'
-type MindMapDropPreview = { nodeId: string; zone: MindMapDropZone } | null
+type MindMapDropPreview = { nodeId: string; zone: MindMapDropZone; invalid?: boolean } | null
 
 const nodeTypes = {
   custom: MindMapNode,
@@ -55,6 +69,7 @@ export const MindMapView: React.FC = () => {
   const collapsedNodeIds = useDocumentStore((s) => s.collapsedNodeIds)
   const pendingAgentPlan = useAgentStore((s) => s.pendingPlan)
   const selectedNodeId = useDocumentStore((s) => s.selectedNodeId)
+  const focusRequestSeq = useDocumentStore((s) => s.focusRequestSeq)
   const selectNode = useDocumentStore((s) => s.selectNode)
   const updateNodeText = useDocumentStore((s) => s.updateNodeText)
   const toggleCollapse = useDocumentStore((s) => s.toggleCollapse)
@@ -72,36 +87,25 @@ export const MindMapView: React.FC = () => {
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [editing, setEditing] = React.useState<MindMapEditingState | null>(null)
   const [mode, setMode] = React.useState<MindMapMode>('layout')
+  const [exportClean, setExportClean] = React.useState(false)
+  const flowInstanceRef = React.useRef<ReactFlowInstance | null>(null)
+  const flowWrapperRef = React.useRef<HTMLDivElement | null>(null)
   const dragStartPositionsRef = React.useRef<Map<string, { x: number; y: number }> | null>(null)
 
-  const parentByNodeId = React.useMemo(() => {
-    const parents = new Map<string, string | null>()
-    if (!currentDoc) return parents
+  const depthByNodeId = React.useMemo(
+    () => currentDoc ? getNodeDepthMap(currentDoc.root) : new Map<string, number>(),
+    [currentDoc],
+  )
 
-    const visit = (nodeId: string, parentId: string | null) => {
-      parents.set(nodeId, parentId)
-      const node = findNodeById(currentDoc.root, nodeId)
-      node?.children.forEach((child) => visit(child.id, nodeId))
-    }
+  const parentByNodeId = React.useMemo(
+    () => currentDoc ? getParentIdMap(currentDoc.root) : new Map<string, string | null>(),
+    [currentDoc],
+  )
 
-    visit(currentDoc.root.id, null)
-    return parents
-  }, [currentDoc])
-
-  const childIndexByNodeId = React.useMemo(() => {
-    const indexes = new Map<string, number>()
-    if (!currentDoc) return indexes
-
-    const visit = (node: typeof currentDoc.root) => {
-      node.children.forEach((child, index) => {
-        indexes.set(child.id, index)
-        visit(child)
-      })
-    }
-
-    visit(currentDoc.root)
-    return indexes
-  }, [currentDoc])
+  const childIndexByNodeId = React.useMemo(
+    () => currentDoc ? getChildIndexMap(currentDoc.root) : new Map<string, number>(),
+    [currentDoc],
+  )
 
   const agentPreview = React.useMemo(
     () => createAgentDocumentPreview(pendingAgentPlan),
@@ -109,19 +113,7 @@ export const MindMapView: React.FC = () => {
   )
 
   const getNodeDescendantIds = React.useCallback((nodeId: string): Set<string> => {
-    const descendantIds = new Set<string>()
-    if (!currentDoc) return descendantIds
-
-    const node = findNodeById(currentDoc.root, nodeId)
-    const collect = (children: typeof currentDoc.root.children) => {
-      children.forEach((child) => {
-        descendantIds.add(child.id)
-        collect(child.children)
-      })
-    }
-
-    if (node) collect(node.children)
-    return descendantIds
+    return currentDoc ? getDescendantIds(currentDoc.root, nodeId) : new Set<string>()
   }, [currentDoc])
 
   const startEditing = React.useCallback((nodeId: string) => {
@@ -142,9 +134,49 @@ export const MindMapView: React.FC = () => {
     setEditing(null)
   }, [commitTextEditSession, editing])
 
-  const handleAfterDelete = React.useCallback(() => {
+  const {
+    validFocusRootNodeId,
+    handleFocusBranch,
+    handleResetFocus,
+    handleAfterDeleteFocus,
+  } = useMindMapFocus({
+    currentDoc,
+    focusRequestSeq,
+    selectedNodeId,
+    selectNode,
+  })
+
+  const visibleNodeIds = React.useMemo(() => {
+    if (!currentDoc) return new Set<string>()
+    return new Set(getVisibleMindMapNodeIds(currentDoc.root, collapsedNodeIds, validFocusRootNodeId))
+  }, [collapsedNodeIds, currentDoc, validFocusRootNodeId])
+
+  const graphRootNode = React.useMemo(() => {
+    if (!currentDoc) return null
+    return validFocusRootNodeId
+      ? getNodeSubtree(currentDoc.root, validFocusRootNodeId)
+      : currentDoc.root
+  }, [currentDoc, validFocusRootNodeId])
+
+  const {
+    searchOpen,
+    searchQuery,
+    activeMatchIndex,
+    matchedNodeIds,
+    activeMatchNodeId,
+    setSearchOpen,
+    handleSearchQueryChange,
+    navigateSearch,
+    closeSearch,
+  } = useMindMapSearch({
+    root: currentDoc?.root ?? null,
+    visibleNodeIds,
+  })
+
+  const handleAfterDelete = React.useCallback((deletedNodeId: string) => {
     setEditing(null)
-  }, [])
+    handleAfterDeleteFocus(deletedNodeId)
+  }, [handleAfterDeleteFocus])
 
   const {
     contextMenu,
@@ -167,11 +199,11 @@ export const MindMapView: React.FC = () => {
   React.useEffect(() => {
     if (!currentDoc) return
 
-    const rawGraph = outlineToGraph(currentDoc.root, collapsedNodeIds)
+    const rawGraph = outlineToGraph(graphRootNode ?? currentDoc.root, collapsedNodeIds, visibleNodeIds)
     const graphWithAgentInsertions = addAgentInsertionPreviewGraph(
       rawGraph,
-      currentDoc.root.id,
-      agentPreview.insertionsByParentId.get(currentDoc.root.id) ?? [],
+      validFocusRootNodeId ?? currentDoc.root.id,
+      exportClean ? [] : agentPreview.insertionsByParentId.get(validFocusRootNodeId ?? currentDoc.root.id) ?? [],
     )
     const layouted = layoutGraph({
       ...graphWithAgentInsertions,
@@ -180,11 +212,18 @@ export const MindMapView: React.FC = () => {
         const previewInsertion = getAgentInsertionFromGraphNode(node)
         const data: MindMapNodeData = {
           label: previewInsertion?.node.text ?? sourceNode?.text ?? '',
+          depth: previewInsertion ? 0 : depthByNodeId.get(node.id) ?? 0,
           childCount: previewInsertion ? 0 : sourceNode?.children.length ?? 0,
+          visibleChildCount: previewInsertion ? 0 : sourceNode?.children.filter((child) => visibleNodeIds.has(child.id)).length ?? 0,
           collapsed: previewInsertion ? false : Boolean(sourceNode && collapsedNodeIds.has(sourceNode.id)),
+          focused: !previewInsertion && node.id === validFocusRootNodeId,
+          matched: !previewInsertion && !exportClean && matchedNodeIds.includes(node.id),
+          activeMatch: !previewInsertion && !exportClean && node.id === activeMatchNodeId,
+          hasTags: !previewInsertion && Boolean(sourceNode?.tags?.length),
+          exportClean,
           checked: previewInsertion ? undefined : sourceNode?.checked,
-          agentPreview: previewInsertion ? undefined : agentPreview.nodePreviews.get(node.id),
-          agentInsertion: Boolean(previewInsertion),
+          agentPreview: previewInsertion || exportClean ? undefined : agentPreview.nodePreviews.get(node.id),
+          agentInsertion: !exportClean && Boolean(previewInsertion),
           dropState: null,
           editing: editing?.nodeId === node.id,
           onToggleCollapse: toggleCollapse,
@@ -204,7 +243,7 @@ export const MindMapView: React.FC = () => {
         return {
           ...node,
           data,
-          selected: !previewInsertion && node.id === selectedNodeId,
+          selected: !exportClean && !previewInsertion && node.id === selectedNodeId,
         }
       }),
     }, {
@@ -218,13 +257,18 @@ export const MindMapView: React.FC = () => {
     cancelEditing,
     collapsedNodeIds,
     currentDoc,
+    activeMatchNodeId,
+    depthByNodeId,
     editing?.nodeId,
+    exportClean,
     finishEditing,
     agentPreview,
+    graphRootNode,
     handleDelete,
     indentNode,
     insertChildAndEdit,
     insertSiblingAndEdit,
+    matchedNodeIds,
     moveNode,
     outdentNode,
     selectedNodeId,
@@ -233,7 +277,42 @@ export const MindMapView: React.FC = () => {
     toggleCollapse,
     toggleNodeChecked,
     updateNodeText,
+    validFocusRootNodeId,
+    visibleNodeIds,
   ])
+
+  React.useEffect(() => {
+    if (!activeMatchNodeId) return
+    selectNode(activeMatchNodeId)
+    const node = nodes.find((item) => item.id === activeMatchNodeId)
+    if (node) {
+      flowInstanceRef.current?.setCenter(
+        node.position.x + (node.width ?? DEFAULT_MIND_MAP_NODE_WIDTH) / 2,
+        node.position.y + (node.height ?? 44) / 2,
+        { duration: 300, zoom: 1 },
+      )
+    }
+  }, [activeMatchNodeId, nodes, selectNode])
+
+  const cleanExportElement = React.useCallback(() => flowWrapperRef.current, [])
+  const { status: exportStatus, exportMindMap } = useMindMapExport({
+    documentTitle: currentDoc?.title ?? '未命名文档',
+    getExportElement: cleanExportElement,
+    hasExportableContent: () => nodes.some((node) => !isAgentInsertionNodeId(node.id)),
+  })
+
+  const handleExport = React.useCallback(async (format: 'png' | 'pdf') => {
+    setExportClean(true)
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+    await exportMindMap(format)
+    setExportClean(false)
+  }, [exportMindMap])
+
+  useMindMapExportRegistration({
+    active: true,
+    status: exportStatus,
+    exportMindMap: (format) => void handleExport(format),
+  })
 
   const handleNodesChange = React.useCallback(onNodesChange, [onNodesChange])
 
@@ -264,7 +343,8 @@ export const MindMapView: React.FC = () => {
           height: draggedNode?.id === node.id ? draggedNode.height ?? node.height : node.height,
           data: {
             ...node.data,
-            dropState: preview?.nodeId === node.id ? preview.zone : null,
+            dropState: preview?.nodeId === node.id && !preview.invalid ? preview.zone : null,
+            invalidDrop: preview?.nodeId === node.id && Boolean(preview.invalid),
           },
         }
       })
@@ -287,11 +367,33 @@ export const MindMapView: React.FC = () => {
       dragStartPositionsRef.current = new Map(nodes.map((node) => [node.id, node.position]))
     }
     const dragTarget = resolveDraggedNodeTarget(draggedNode)
+    const targetNode = dragTarget && currentDoc ? findNodeById(currentDoc.root, dragTarget.targetNodeId) : null
+    const resolvedMove = dragTarget && currentDoc
+      ? resolveMindMapDropMove({
+        sourceNodeId: draggedNode.id,
+        targetNodeId: dragTarget.targetNodeId,
+        zone: dragTarget.zone,
+        targetParentId: parentByNodeId.get(dragTarget.targetNodeId),
+        targetIndex: childIndexByNodeId.get(dragTarget.targetNodeId),
+        targetChildCount: targetNode?.children.length ?? 0,
+        rootNodeId: currentDoc.root.id,
+        descendantNodeIds: getNodeDescendantIds(draggedNode.id),
+      })
+      : null
     updateDropPreview(
-      dragTarget ? { nodeId: dragTarget.targetNodeId, zone: dragTarget.zone } : null,
+      dragTarget ? { nodeId: dragTarget.targetNodeId, zone: dragTarget.zone, invalid: !resolvedMove } : null,
       draggedNode,
     )
-  }, [mode, nodes, resolveDraggedNodeTarget, updateDropPreview])
+  }, [
+    childIndexByNodeId,
+    currentDoc,
+    getNodeDescendantIds,
+    mode,
+    nodes,
+    parentByNodeId,
+    resolveDraggedNodeTarget,
+    updateDropPreview,
+  ])
 
   const handleNodeDragStop = React.useCallback((_event: React.MouseEvent, draggedNode: Node) => {
     if (!currentDoc) return
@@ -309,6 +411,8 @@ export const MindMapView: React.FC = () => {
         targetParentId: parentByNodeId.get(dragTarget.targetNodeId),
         targetIndex: childIndexByNodeId.get(dragTarget.targetNodeId),
         targetChildCount: targetNode?.children.length ?? 0,
+        rootNodeId: currentDoc.root.id,
+        descendantNodeIds: getNodeDescendantIds(draggedNode.id),
       })
       if (!resolvedMove) return
 
@@ -352,14 +456,17 @@ export const MindMapView: React.FC = () => {
 
   const handleAutoLayout = React.useCallback(() => {
     if (!currentDoc) return
-    const rawGraph = outlineToGraph(currentDoc.root, collapsedNodeIds)
+    const rawGraph = outlineToGraph(graphRootNode ?? currentDoc.root, collapsedNodeIds, visibleNodeIds)
     const layouted = layoutGraph(rawGraph, { preserveSavedPositions: false })
-    const nextLayout = layouted.nodes.reduce<Record<string, { x: number; y: number }>>((layout, node) => {
+    const nextLayout = {
+      ...(currentDoc.mindMapLayout ?? {}),
+      ...layouted.nodes.reduce<Record<string, { x: number; y: number }>>((layout, node) => {
       layout[node.id] = node.position
       return layout
-    }, {})
+      }, {}),
+    }
     commitMindMapLayout(nextLayout)
-  }, [collapsedNodeIds, commitMindMapLayout, currentDoc])
+  }, [collapsedNodeIds, commitMindMapLayout, currentDoc, graphRootNode, visibleNodeIds])
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -443,40 +550,8 @@ export const MindMapView: React.FC = () => {
 
   return (
     <div className="relative h-full w-full bg-linen">
-      <div className="absolute left-4 top-4 z-10 flex items-center gap-1 rounded-lg border border-amber-900/10 bg-[#FAF8F4]/95 p-1 shadow-fabric">
-        <button
-          type="button"
-          aria-label="布局"
-          title="布局"
-          onClick={() => setMode('layout')}
-          className={`flex h-8 w-8 items-center justify-center rounded-md transition ${
-            mode === 'layout' ? 'bg-amber-100 text-amber-900' : 'text-zinc-500 hover:bg-amber-50'
-          }`}
-        >
-          <Move className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="重组"
-          title="重组"
-          onClick={() => setMode('reorganize')}
-          className={`flex h-8 w-8 items-center justify-center rounded-md transition ${
-            mode === 'reorganize' ? 'bg-emerald-100 text-emerald-800' : 'text-zinc-500 hover:bg-amber-50'
-          }`}
-        >
-          <GitBranch className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="自动整理"
-          title="自动整理"
-          onClick={handleAutoLayout}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-amber-50"
-        >
-          <LayoutDashboard className="h-4 w-4" />
-        </button>
-      </div>
-      <ReactFlow
+      <div ref={flowWrapperRef} className="h-full w-full">
+        <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -489,6 +564,9 @@ export const MindMapView: React.FC = () => {
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
         onKeyDown={handleKeyDown}
+        onInit={(instance) => {
+          flowInstanceRef.current = instance
+        }}
         fitView
         fitViewOptions={{ padding: 0.25 }}
         minZoom={0.1}
@@ -506,8 +584,30 @@ export const MindMapView: React.FC = () => {
           className="!bottom-4 !right-4"
         />
         <Background color="#FAF8F4" gap={16} size={1} />
-      </ReactFlow>
-
+        </ReactFlow>
+      </div>
+      {!exportClean && (
+        <MindMapToolbar
+          mode={mode}
+          focused={Boolean(validFocusRootNodeId)}
+          searchOpen={searchOpen}
+          onModeChange={setMode}
+          onAutoLayout={handleAutoLayout}
+          onToggleSearch={() => setSearchOpen((open) => !open)}
+          onResetFocus={handleResetFocus}
+        />
+      )}
+      {searchOpen && !exportClean && (
+        <MindMapSearchBar
+          query={searchQuery}
+          matchCount={matchedNodeIds.length}
+          activeIndex={Math.max(activeMatchIndex, 0)}
+          onQueryChange={handleSearchQueryChange}
+          onPrevious={() => navigateSearch(-1)}
+          onNext={() => navigateSearch(1)}
+          onClose={closeSearch}
+        />
+      )}
       {contextMenu && contextNode && (
         <MindMapContextMenu
           x={contextMenu.x}
@@ -515,6 +615,10 @@ export const MindMapView: React.FC = () => {
           isCollapsed={collapsedNodeIds.has(contextMenu.nodeId)}
           operationState={getNodeOperationState(contextMenu.nodeId)}
           onAction={(action) => runAction(contextMenu.nodeId, action)}
+          onFocusBranch={() => {
+            handleFocusBranch(contextMenu.nodeId)
+            closeContextMenu()
+          }}
         />
       )}
 

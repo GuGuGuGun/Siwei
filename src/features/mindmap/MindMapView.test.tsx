@@ -30,6 +30,7 @@ vi.mock('reactflow', async () => {
     onNodeDragStop?: (event: React.MouseEvent, node: MockFlowNode, nodes: MockFlowNode[]) => void
     onNodeDrag?: (event: React.MouseEvent, node: MockFlowNode) => void
     onNodeDragStart?: (event: React.MouseEvent, node: MockFlowNode) => void
+    onInit?: (instance: { setCenter: ReturnType<typeof vi.fn> }) => void
     onPaneClick?: () => void
     onKeyDown?: (event: React.KeyboardEvent) => void
     children?: React.ReactNode
@@ -46,83 +47,90 @@ vi.mock('reactflow', async () => {
       onNodeDrag,
       onNodeDragStart,
       onNodeDragStop,
+      onInit,
       onPaneClick,
       onKeyDown,
       children,
       nodesDraggable,
-    }: MockReactFlowProps) => (
-      <div
-        data-testid="react-flow"
-        data-nodes-draggable={String(nodesDraggable)}
-        tabIndex={0}
-        onClick={onPaneClick}
-        onKeyDown={onKeyDown}
-      >
-        {nodes.map((node) => {
-          const NodeComponent = nodeTypes[node.type]
-          return (
-            <div
-              key={node.id}
-              data-testid={`flow-node-${node.id}`}
-              data-position-x={node.position?.x}
-              data-position-y={node.position?.y}
-              onClick={(event) => {
-                event.stopPropagation()
-                onNodeClick?.(event, node)
-              }}
-              onDoubleClick={(event) => {
-                event.stopPropagation()
-                onNodeDoubleClick?.(event, node)
-              }}
-              onContextMenu={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-                onNodeContextMenu?.(event, node)
-              }}
-              onDragStart={(event) => {
-                event.stopPropagation()
-                onNodeDragStart?.(event, node)
-              }}
-              onDrag={(event) => {
-                event.stopPropagation()
-                const targetNode = nodes.find((currentNode) => currentNode.id === 'node-1')
-                onNodeDrag?.(event, {
-                  ...node,
-                  position: targetNode?.position ?? node.position ?? { x: 0, y: 0 },
-                  width: 200,
-                  height: 44,
-                })
-              }}
-              onDragEnd={(event) => {
-                event.stopPropagation()
-                const isReorganizeMode = document
-                  .querySelector('[aria-label="重组"]')
-                  ?.className.includes('bg-emerald-100') ?? false
-                const targetNode = nodes.find((currentNode) => currentNode.id === 'node-1')
-                const draggedPosition = isReorganizeMode && targetNode
-                  ? targetNode.position ?? { x: 0, y: 0 }
-                  : { x: 333, y: 222 }
-                const measuredNodes = nodes.map((currentNode) => ({
-                  ...currentNode,
-                  width: 200,
-                  height: 44,
-                }))
-                onNodeDragStop?.(event, {
-                  ...node,
-                  position: draggedPosition,
-                  width: 200,
-                  height: 44,
-                }, measuredNodes)
-              }}
-              draggable
-            >
-              <NodeComponent id={node.id} data={node.data} selected={node.selected} type={node.type} />
-            </div>
-          )
-        })}
-        {children}
-      </div>
-    ),
+    }: MockReactFlowProps) => {
+      React.useEffect(() => {
+        onInit?.({ setCenter: vi.fn() })
+      }, [onInit])
+
+      return (
+        <div
+          data-testid="react-flow"
+          data-nodes-draggable={String(nodesDraggable)}
+          tabIndex={0}
+          onClick={onPaneClick}
+          onKeyDown={onKeyDown}
+        >
+          {nodes.map((node) => {
+            const NodeComponent = nodeTypes[node.type]
+            return (
+              <div
+                key={node.id}
+                data-testid={`flow-node-${node.id}`}
+                data-position-x={node.position?.x}
+                data-position-y={node.position?.y}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onNodeClick?.(event, node)
+                }}
+                onDoubleClick={(event) => {
+                  event.stopPropagation()
+                  onNodeDoubleClick?.(event, node)
+                }}
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  onNodeContextMenu?.(event, node)
+                }}
+                onDragStart={(event) => {
+                  event.stopPropagation()
+                  onNodeDragStart?.(event, node)
+                }}
+                onDrag={(event) => {
+                  event.stopPropagation()
+                  const targetNode = nodes.find((currentNode) => currentNode.id === 'node-1')
+                  onNodeDrag?.(event, {
+                    ...node,
+                    position: targetNode?.position ?? node.position ?? { x: 0, y: 0 },
+                    width: 200,
+                    height: 44,
+                  })
+                }}
+                onDragEnd={(event) => {
+                  event.stopPropagation()
+                  const isReorganizeMode = document
+                    .querySelector('[aria-label="重组"]')
+                    ?.className.includes('bg-emerald-100') ?? false
+                  const targetNode = nodes.find((currentNode) => currentNode.id === 'node-1')
+                  const draggedPosition = isReorganizeMode && targetNode
+                    ? targetNode.position ?? { x: 0, y: 0 }
+                    : { x: 333, y: 222 }
+                  const measuredNodes = nodes.map((currentNode) => ({
+                    ...currentNode,
+                    width: 200,
+                    height: 44,
+                  }))
+                  onNodeDragStop?.(event, {
+                    ...node,
+                    position: draggedPosition,
+                    width: 200,
+                    height: 44,
+                  }, measuredNodes)
+                }}
+                draggable
+              >
+                <NodeComponent id={node.id} data={node.data} selected={node.selected} type={node.type} />
+              </div>
+            )
+          })}
+          {children}
+        </div>
+      )
+    },
     Handle: () => <span data-testid="flow-handle" />,
     Position: { Left: 'left', Right: 'right' },
     MiniMap: () => <div data-testid="flow-minimap" />,
@@ -151,6 +159,7 @@ describe('MindMapView', () => {
       currentFilePath: null,
       filter: { query: '', tag: null, checked: 'all' },
       focusedNodeId: null,
+      focusRequestSeq: 0,
       canUndo: false,
       canRedo: false,
       undoStack: [],
@@ -354,6 +363,69 @@ describe('MindMapView', () => {
 
     expect(screen.getByTestId('mindmap-node-agent-insertion-preview:agent-node')).toHaveTextContent('计算器开发')
     expect(screen.getByTestId('mindmap-node-agent-insertion-preview:agent-node')).toHaveTextContent('将插入')
+  })
+
+  it('focuses a branch from the mind map context menu and returns to the full map', async () => {
+    render(<MindMapView />)
+
+    fireEvent.contextMenu(screen.getByTestId('flow-node-node-1'))
+    fireEvent.click(screen.getByRole('menuitem', { name: '聚焦此分支' }))
+
+    await waitFor(() => expect(screen.queryByTestId('flow-node-root')).not.toBeInTheDocument())
+    expect(screen.getByTestId('flow-node-node-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('flow-node-node-2')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '回到全图' }))
+
+    await waitFor(() => expect(screen.getByTestId('flow-node-root')).toBeInTheDocument())
+    expect(screen.getByTestId('flow-node-node-2')).toBeInTheDocument()
+  })
+
+  it('exits branch focus when an external node focus request arrives', async () => {
+    render(<MindMapView />)
+
+    fireEvent.contextMenu(screen.getByTestId('flow-node-node-1'))
+    fireEvent.click(screen.getByRole('menuitem', { name: '聚焦此分支' }))
+    await waitFor(() => expect(screen.queryByTestId('flow-node-node-2')).not.toBeInTheDocument())
+
+    act(() => {
+      useDocumentStore.getState().focusNode('node-2')
+    })
+
+    await waitFor(() => expect(screen.getByTestId('flow-node-node-2')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: '回到全图' })).not.toBeInTheDocument()
+  })
+
+  it('returns to the parent branch after deleting the focused branch root', async () => {
+    render(<MindMapView />)
+
+    fireEvent.contextMenu(screen.getByTestId('flow-node-node-1-1'))
+    fireEvent.click(screen.getByRole('menuitem', { name: '聚焦此分支' }))
+    await waitFor(() => expect(screen.queryByTestId('flow-node-node-1')).not.toBeInTheDocument())
+
+    fireEvent.contextMenu(screen.getByTestId('flow-node-node-1-1'))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除节点' }))
+
+    await waitFor(() => expect(screen.getByTestId('flow-node-node-1')).toBeInTheDocument())
+    expect(screen.queryByTestId('flow-node-root')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('flow-node-node-2')).not.toBeInTheDocument()
+  })
+
+  it('searches visible mind map nodes and highlights the active match', async () => {
+    render(<MindMapView />)
+
+    fireEvent.click(screen.getByRole('button', { name: '搜索导图' }))
+    fireEvent.change(screen.getByLabelText('导图搜索关键词'), { target: { value: '第二' } })
+
+    await waitFor(() => expect(screen.getByText('1/1')).toBeInTheDocument())
+    expect(screen.getByTestId('mindmap-node-node-2')).toHaveClass('ring-4')
+    expect(useDocumentStore.getState().selectedNodeId).toBe('node-2')
+  })
+
+  it('keeps mind map export out of the local canvas toolbar', () => {
+    render(<MindMapView />)
+
+    expect(screen.queryByRole('button', { name: '导出导图' })).not.toBeInTheDocument()
   })
 
 })

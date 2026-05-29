@@ -13,8 +13,9 @@ import { useSettingsStore } from '../features/settings/settingsStore'
 import { useWorkspaceStore } from './workspaceStore'
 import { useAgentStore } from '../features/agent/agentStore'
 import { AgentPanel } from '../features/agent/AgentPanel'
+import { mindMapExportController } from '../features/mindmap/mindMapExportController'
 import { openFileDialog, saveFileDialog } from '../services/siweiApi'
-import { Search, Save, FileOutput, FileInput, Grid, List, Columns, Sparkles, Undo2, Redo2 } from 'lucide-react'
+import { Search, Save, FileOutput, FileInput, Grid, List, Columns, Sparkles, Undo2, Redo2, FileImage, FileText } from 'lucide-react'
 
 export const App: React.FC = () => {
   const currentDoc = useDocumentStore((s) => s.currentDoc)
@@ -144,6 +145,17 @@ export const App: React.FC = () => {
     }
   }
 
+  const isMindMapVisible = activeWorkspaceView === 'editor' && (viewMode === 'mindmap' || viewMode === 'split')
+
+  const handleTopExportClick = () => {
+    setIsExportOpen(true)
+  }
+
+  const handleMindMapExport = (format: 'png' | 'pdf') => {
+    mindMapExportController.current.exportMindMap?.(format)
+    setIsExportOpen(false)
+  }
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-linen font-sans text-zinc-800 select-none">
       {/* Canvas Sidebar */}
@@ -246,7 +258,7 @@ export const App: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setIsExportOpen(true)}
+              onClick={handleTopExportClick}
               className="btn-patch-light flex h-8 w-8 items-center justify-center rounded-md focus:outline-none"
               title="导出"
             >
@@ -361,6 +373,37 @@ export const App: React.FC = () => {
             </div>
             <Sparkles size={16} className="text-zinc-400 group-hover:text-zinc-600 transition-colors" />
           </button>
+          {isMindMapVisible && (
+            <>
+              <div className="my-4 h-px bg-zinc-200/80" />
+              <button
+                onClick={() => handleMindMapExport('png')}
+                disabled={mindMapExportController.current.status === 'exporting'}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl border border-zinc-200/80 bg-amber-50/80 text-left hover:bg-amber-100/70 hover:border-amber-200 transition-all shadow-sm group disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <div>
+                  <div className="text-[13px] font-semibold text-zinc-800 tracking-wide">
+                    {mindMapExportController.current.status === 'exporting' ? '正在导出导图' : '导出导图图片 (.png)'}
+                  </div>
+                  <div className="text-[11px] text-zinc-500 mt-1">生成隐藏编辑态标记的干净导图图片</div>
+                </div>
+                <FileImage size={16} className="text-zinc-400 group-hover:text-zinc-600 transition-colors" />
+              </button>
+              <button
+                onClick={() => handleMindMapExport('pdf')}
+                disabled={mindMapExportController.current.status === 'exporting'}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl border border-zinc-200/80 bg-amber-50/80 text-left hover:bg-amber-100/70 hover:border-amber-200 transition-all shadow-sm group disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <div>
+                  <div className="text-[13px] font-semibold text-zinc-800 tracking-wide">
+                    {mindMapExportController.current.status === 'exporting' ? '正在导出导图' : '导出导图 PDF (.pdf)'}
+                  </div>
+                  <div className="text-[11px] text-zinc-500 mt-1">将当前导图范围保存为可分享的 PDF</div>
+                </div>
+                <FileText size={16} className="text-zinc-400 group-hover:text-zinc-600 transition-colors" />
+              </button>
+            </>
+          )}
         </div>
       </Dialog>
 

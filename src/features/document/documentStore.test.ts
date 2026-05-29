@@ -33,6 +33,7 @@ describe('documentStore', () => {
       currentFilePath: null,
       filter: { query: '', tag: null, checked: 'all' },
       focusedNodeId: null,
+      focusRequestSeq: 0,
       canUndo: false,
       canRedo: false,
       undoStack: [],
@@ -688,6 +689,7 @@ describe('documentStore', () => {
     expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(false)
     expect(useDocumentStore.getState().selectedNodeId).toBe('node-1-1')
     expect(useDocumentStore.getState().focusedNodeId).toBe('node-1-1')
+    expect(useDocumentStore.getState().focusRequestSeq).toBe(1)
 
     vi.advanceTimersByTime(1600)
     expect(useDocumentStore.getState().focusedNodeId).toBeNull()

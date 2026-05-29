@@ -129,6 +129,8 @@ export async function browserInvokeFallback<T>(command: string, args?: CommandAr
         currentDoc = args.doc as OutlineDocument
       }
       return undefined as T
+    case 'export_mindmap_asset':
+      return undefined as T
     case 'load_document':
     case 'import_json':
     case 'import_markdown':

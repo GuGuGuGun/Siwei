@@ -1,0 +1,82 @@
+import React from 'react'
+import { GitBranch, LayoutDashboard, Move, Search, X } from 'lucide-react'
+
+export type MindMapMode = 'layout' | 'reorganize'
+
+interface MindMapToolbarProps {
+  mode: MindMapMode
+  focused: boolean
+  searchOpen: boolean
+  onModeChange: (mode: MindMapMode) => void
+  onAutoLayout: () => void
+  onToggleSearch: () => void
+  onResetFocus: () => void
+}
+
+export const MindMapToolbar: React.FC<MindMapToolbarProps> = ({
+  mode,
+  focused,
+  searchOpen,
+  onModeChange,
+  onAutoLayout,
+  onToggleSearch,
+  onResetFocus,
+}) => {
+  return (
+    <div className="absolute left-4 top-4 z-10 flex items-center gap-1 rounded-lg border border-amber-900/10 bg-[#FAF8F4]/95 p-1 shadow-fabric">
+      <button
+        type="button"
+        aria-label="布局"
+        title="布局"
+        onClick={() => onModeChange('layout')}
+        className={`flex h-8 w-8 items-center justify-center rounded-md transition ${
+          mode === 'layout' ? 'bg-amber-100 text-amber-900' : 'text-zinc-500 hover:bg-amber-50'
+        }`}
+      >
+        <Move className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        aria-label="重组"
+        title="重组"
+        onClick={() => onModeChange('reorganize')}
+        className={`flex h-8 w-8 items-center justify-center rounded-md transition ${
+          mode === 'reorganize' ? 'bg-emerald-100 text-emerald-800' : 'text-zinc-500 hover:bg-amber-50'
+        }`}
+      >
+        <GitBranch className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        aria-label="自动整理"
+        title="自动整理"
+        onClick={onAutoLayout}
+        className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-amber-50"
+      >
+        <LayoutDashboard className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        aria-label="搜索导图"
+        title="搜索导图"
+        onClick={onToggleSearch}
+        className={`flex h-8 w-8 items-center justify-center rounded-md transition ${
+          searchOpen ? 'bg-sky-100 text-sky-800' : 'text-zinc-500 hover:bg-amber-50'
+        }`}
+      >
+        <Search className="h-4 w-4" />
+      </button>
+      {focused && (
+        <button
+          type="button"
+          aria-label="回到全图"
+          title="回到全图"
+          onClick={onResetFocus}
+          className="flex h-8 w-8 items-center justify-center rounded-md bg-zinc-100 text-zinc-700 transition hover:bg-zinc-200"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
+    </div>
+  )
+}

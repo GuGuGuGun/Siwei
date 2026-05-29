@@ -53,6 +53,14 @@ export function importJson(path: string): Promise<OutlineDocument> {
   return callCommand('import_json', { path })
 }
 
+export function exportMindMapAsset(
+  path: string,
+  format: 'png' | 'pdf',
+  bytes: number[],
+): Promise<void> {
+  return callCommand('export_mindmap_asset', { path, format, bytes })
+}
+
 export function getRecentDocs(): Promise<RecentDocItem[]> {
   return callCommand('get_recent_docs')
 }

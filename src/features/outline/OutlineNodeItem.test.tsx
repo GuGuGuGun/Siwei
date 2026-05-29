@@ -19,6 +19,7 @@ describe('OutlineNodeItem', () => {
       currentFilePath: null,
       filter: { query: '', tag: null, checked: 'all' },
       focusedNodeId: null,
+      focusRequestSeq: 0,
       canUndo: false,
       canRedo: false,
       undoStack: [],

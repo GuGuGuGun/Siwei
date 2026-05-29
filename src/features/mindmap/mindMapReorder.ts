@@ -17,6 +17,8 @@ interface ResolveDropMoveInput {
   targetParentId: string | null | undefined
   targetIndex: number | undefined
   targetChildCount: number
+  rootNodeId?: string
+  descendantNodeIds?: Set<string>
 }
 
 export interface ResolvedDropMove {
@@ -72,8 +74,19 @@ export function resolveMindMapDragTarget(
 }
 
 export function resolveMindMapDropMove(input: ResolveDropMoveInput): ResolvedDropMove | null {
-  const { sourceNodeId, targetNodeId, zone, targetParentId, targetIndex, targetChildCount } = input
+  const {
+    sourceNodeId,
+    targetNodeId,
+    zone,
+    targetParentId,
+    targetIndex,
+    targetChildCount,
+    rootNodeId,
+    descendantNodeIds,
+  } = input
   if (!sourceNodeId || sourceNodeId === targetNodeId) return null
+  if (rootNodeId && sourceNodeId === rootNodeId) return null
+  if (descendantNodeIds?.has(targetNodeId)) return null
 
   if (zone === 'child') {
     return {

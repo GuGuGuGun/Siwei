@@ -14,7 +14,7 @@ interface NodeContextMenuState {
 interface UseNodeContextMenuControllerOptions {
   currentDoc: OutlineDocument | null
   onStartEditing: (nodeId: string) => void
-  onAfterDelete?: () => void
+  onAfterDelete?: (deletedNodeId: string) => void
 }
 
 export function useNodeContextMenuController({
@@ -75,7 +75,7 @@ export function useNodeContextMenuController({
     }
 
     deleteNode(nodeId)
-    onAfterDelete?.()
+    onAfterDelete?.(nodeId)
     toast.info('已删除节点')
   }, [currentDoc, deleteNode, onAfterDelete])
 
@@ -84,7 +84,7 @@ export function useNodeContextMenuController({
 
     deleteNode(deleteTargetId)
     setDeleteTargetId(null)
-    onAfterDelete?.()
+    onAfterDelete?.(deleteTargetId)
     toast.info('已删除节点')
   }, [deleteNode, deleteTargetId, onAfterDelete])
 

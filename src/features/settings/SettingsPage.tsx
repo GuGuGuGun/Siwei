@@ -83,7 +83,7 @@ export const SettingsPage: React.FC = () => {
           type="button"
           onClick={() => setActiveView('editor')}
           aria-label="关闭设置"
-          title="关闭设置"
+          title="关闭面板"
           className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-300"
         >
           <X size={16} />

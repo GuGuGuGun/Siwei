@@ -37,6 +37,7 @@ describe('siweiApi', () => {
 
     await api.saveFileDialog('测试文档.siwei.json')
     await api.searchDocument(doc, '节点')
+    await api.exportMindMapAsset('测试文档.png', 'png', [1, 2, 3])
 
     expect(invokeMock).toHaveBeenNthCalledWith(1, 'save_file_dialog', {
       defaultName: '测试文档.siwei.json',
@@ -44,6 +45,11 @@ describe('siweiApi', () => {
     expect(invokeMock).toHaveBeenNthCalledWith(2, 'search_document', {
       doc,
       query: '节点',
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'export_mindmap_asset', {
+      path: '测试文档.png',
+      format: 'png',
+      bytes: [1, 2, 3],
     })
   })
 

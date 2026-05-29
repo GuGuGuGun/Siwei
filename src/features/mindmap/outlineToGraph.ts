@@ -12,12 +12,15 @@ export interface GraphData {
  */
 export function outlineToGraph(
   root: OutlineNode,
-  collapsedNodeIds: Set<string>
+  collapsedNodeIds: Set<string>,
+  visibleNodeIds?: Set<string>,
 ): GraphData {
   const nodes: FlowNode[] = []
   const edges: FlowEdge[] = []
 
   const traverse = (node: OutlineNode, parentId: string | null) => {
+    if (visibleNodeIds && !visibleNodeIds.has(node.id)) return
+
     // Add current node to nodes list
     nodes.push({
       id: node.id,

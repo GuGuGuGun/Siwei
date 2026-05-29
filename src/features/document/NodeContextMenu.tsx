@@ -6,6 +6,7 @@ import {
   CornerDownRight,
   CornerUpLeft,
   Edit3,
+  Focus,
   ListPlus,
   MoveDown,
   MoveUp,
@@ -39,6 +40,7 @@ interface NodeContextMenuProps {
   isCollapsed: boolean
   operationState: NodeOperationState
   onAction: (action: NodeMenuAction) => void
+  onFocusBranch?: () => void
 }
 
 const actionIcons: Record<NodeMenuAction, React.ReactNode> = {
@@ -60,6 +62,7 @@ export const NodeContextMenu: React.FC<NodeContextMenuProps> = ({
   isCollapsed,
   operationState,
   onAction,
+  onFocusBranch,
 }) => {
   const items: Array<{ action: NodeMenuAction; label: string; disabled: boolean; danger?: boolean }> = [
     { action: 'insertSibling', label: '新增同级节点', disabled: !operationState.canInsertSibling },
@@ -112,6 +115,16 @@ export const NodeContextMenu: React.FC<NodeContextMenuProps> = ({
           </button>
         )
       })}
+      {onFocusBranch && (
+        <button
+          role="menuitem"
+          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-zinc-700 transition hover:bg-amber-100/60"
+          onClick={onFocusBranch}
+        >
+          <Focus className="h-3.5 w-3.5" />
+          <span className="truncate">聚焦此分支</span>
+        </button>
+      )}
     </div>
   )
 }

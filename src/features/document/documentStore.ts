@@ -68,6 +68,7 @@ interface DocumentState {
   currentFilePath: string | null
   filter: OutlineFilterState
   focusedNodeId: string | null
+  focusRequestSeq: number
   canUndo: boolean
   canRedo: boolean
   undoStack: HistorySnapshot[]
@@ -347,6 +348,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     currentFilePath: null,
     filter: { query: '', tag: null, checked: 'all' },
     focusedNodeId: null,
+    focusRequestSeq: 0,
     canUndo: false,
     canRedo: false,
     undoStack: [],
@@ -380,6 +382,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           collapsedNodeIds: collapsedIds,
           selectedNodeId: firstNodeId,
           focusedNodeId: null,
+          focusRequestSeq: 0,
           saveStatus: 'idle',
           ...clearHistoryState(doc, firstNodeId, collapsedIds, { isDirty: false }),
         })
@@ -403,6 +406,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           collapsedNodeIds: collapsedIds,
           selectedNodeId: firstNodeId,
           focusedNodeId: null,
+          focusRequestSeq: 0,
           saveStatus: 'idle',
           ...clearHistoryState(doc, firstNodeId, collapsedIds, { isDirty: false }),
         })
@@ -1219,6 +1223,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         collapsedNodeIds: newCollapsed,
         selectedNodeId: nodeId,
         focusedNodeId: nodeId,
+        focusRequestSeq: get().focusRequestSeq + 1,
       })
 
       window.setTimeout(() => {
