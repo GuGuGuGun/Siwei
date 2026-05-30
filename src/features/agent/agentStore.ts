@@ -5,7 +5,9 @@ import { createAgentDocumentContext } from './agentChangePlan'
 import type {
   AgentChangePlan,
   AgentChatMessage,
+  AgentInsertedNode,
   AgentMindMapInsertNodesParams,
+  AgentMindMapNodeInput,
   AgentRpcEventRecord,
   AgentStatus,
 } from './agentTypes'
@@ -15,6 +17,8 @@ import {
 } from './agentPlanParser'
 import { useDocumentStore } from '../document/documentStore'
 import * as api from '../../services/siweiApi'
+import { generateId } from '../../utils/id'
+import type { OutlineNode } from '../../types/document'
 
 interface AgentState {
   isOpen: boolean
@@ -181,23 +185,24 @@ const setInternalHandler = () => {
             return
           }
 
-          const result = useDocumentStore.getState().insertAgentMindMapNodes(params)
-          if (result.ok) {
-            useAgentStore.setState((state) => ({
-              messages: appendAssistantMessage(
-                state.messages,
-                `已插入 ${result.insertedNodeIds.length} 个节点`,
-              ),
-              pendingPlan: null,
-              error: null,
-              isSending: false,
-            }))
-          } else {
+          const plan = createMindMapInsertPlan(params)
+          if (!plan.ok) {
             useAgentStore.setState({
-              error: result.error,
+              error: plan.error,
               isSending: false,
             })
+            return
           }
+
+          useAgentStore.setState((state) => ({
+            messages: appendAssistantMessage(
+              state.messages,
+              `待确认插入 ${params.nodes.length} 个节点`,
+            ),
+            pendingPlan: plan.plan,
+            error: null,
+            isSending: false,
+          }))
           return
         }
 
@@ -330,6 +335,84 @@ function normalizeMindMapInsertNodesParams(value: unknown): AgentMindMapInsertNo
     parentNodeId: value.parentNodeId,
     index: typeof value.index === 'number' ? value.index : undefined,
     nodes,
+  }
+}
+
+function createMindMapInsertPlan(
+  params: AgentMindMapInsertNodesParams,
+): { ok: true; plan: AgentChangePlan } | { ok: false; error: string } {
+  const currentDoc = useDocumentStore.getState().currentDoc
+  if (!currentDoc) return { ok: false, error: '当前没有可修改的文档' }
+  if (params.documentId !== currentDoc.id) {
+    return { ok: false, error: 'Agent 工具请求不属于当前文档' }
+  }
+
+  const context = createAgentDocumentContext(currentDoc)
+  if (params.snapshotKey !== context.snapshotKey) {
+    return { ok: false, error: '当前文档已变化，请让助理重新生成节点' }
+  }
+  if (params.nodes.length === 0) {
+    return { ok: false, error: 'Agent 工具请求没有包含节点' }
+  }
+
+  const insertedNodes = params.nodes
+    .map(createInsertedNodeFromMindMapInput)
+    .filter((node): node is AgentInsertedNode => node !== null)
+  if (insertedNodes.length !== params.nodes.length) {
+    return { ok: false, error: 'Agent 工具请求包含空节点标题' }
+  }
+
+  const parentNode = findNodeById(currentDoc.root, params.parentNodeId)
+  if (!parentNode) return { ok: false, error: `父节点不存在: ${params.parentNodeId}` }
+  const index = params.index ?? parentNode.children.length
+  if (index < 0 || index > parentNode.children.length) {
+    return { ok: false, error: `插入位置无效: ${params.parentNodeId}[${index}]` }
+  }
+
+  return {
+    ok: true,
+    plan: {
+      schemaVersion: 1,
+      contextScope: 'currentDocument',
+      documentId: params.documentId,
+      snapshotKey: params.snapshotKey,
+      summary: `待确认插入 ${insertedNodes.length} 个节点`,
+      rationale: '助理已生成思维导图节点，确认后才会写入当前文档。',
+      riskLevel: 'low',
+      references: [],
+      operations: insertedNodes.map((node, offset) => ({
+        type: 'insertNode',
+        parentNodeId: params.parentNodeId,
+        index: index + offset,
+        node,
+      })),
+    },
+  }
+}
+
+function findNodeById(root: OutlineNode, nodeId: string): OutlineNode | null {
+  if (root.id === nodeId) return root
+  for (const child of root.children) {
+    const result = findNodeById(child, nodeId)
+    if (result) return result
+  }
+  return null
+}
+
+function createInsertedNodeFromMindMapInput(input: AgentMindMapNodeInput): AgentInsertedNode | null {
+  const text = input.text.trim()
+  if (!text) return null
+
+  const children = (input.children ?? []).map(createInsertedNodeFromMindMapInput)
+  if (children.some((node) => node === null)) return null
+
+  return {
+    id: generateId(),
+    text,
+    note: input.note,
+    tags: input.tags,
+    checked: input.checked,
+    children: children.filter((node): node is AgentInsertedNode => node !== null),
   }
 }
 

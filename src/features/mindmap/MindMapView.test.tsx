@@ -226,6 +226,42 @@ describe('MindMapView', () => {
     ])
   })
 
+  it('keeps IME draft text local while composing in inline editing', () => {
+    render(<MindMapView />)
+
+    fireEvent.doubleClick(screen.getByTestId('flow-node-node-2'))
+    const input = screen.getByDisplayValue('第二节点')
+
+    fireEvent.compositionStart(input)
+    fireEvent.change(input, { target: { value: 'nihao' } })
+
+    expect(input).toHaveValue('nihao')
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].text).toBe('第二节点')
+    expect(useDocumentStore.getState().activeTextEditSession?.didChange).toBe(false)
+
+    fireEvent.compositionEnd(input, { data: '你好' })
+    fireEvent.change(input, { target: { value: '你好' } })
+    fireEvent.blur(input)
+
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].text).toBe('你好')
+    expect(useDocumentStore.getState().canUndo).toBe(true)
+  })
+
+  it('commits IME text from composition end when no extra change event follows', () => {
+    render(<MindMapView />)
+
+    fireEvent.doubleClick(screen.getByTestId('flow-node-node-2'))
+    const input = screen.getByDisplayValue('第二节点')
+
+    fireEvent.compositionStart(input)
+    fireEvent.change(input, { target: { value: 'nihao' } })
+    fireEvent.compositionEnd(input, { data: '你好', target: { value: '你好' } })
+    fireEvent.blur(input)
+
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].text).toBe('你好')
+    expect(screen.queryByDisplayValue('空白节点')).not.toBeInTheDocument()
+  })
+
   it('commits node position changes in layout mode', () => {
     render(<MindMapView />)
 

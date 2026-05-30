@@ -152,10 +152,7 @@ describe('App', () => {
   })
 
   it('shows an exit control while focus mode is active', async () => {
-    const updateSettings = vi.spyOn(useSettingsStore.getState(), 'updateSettings')
-      .mockImplementation(async (patch) => {
-        useSettingsStore.setState((state) => ({ settings: { ...state.settings, ...patch } }))
-      })
+    vi.mocked(api.getSettings).mockResolvedValueOnce({ ...appSettings, focusMode: true })
     useSettingsStore.setState({
       settings: { ...appSettings, focusMode: true },
       isLoaded: true,
@@ -173,9 +170,7 @@ describe('App', () => {
     fireEvent.click(exitButton)
 
     await waitFor(() => {
-      expect(updateSettings).toHaveBeenCalledWith({ focusMode: false })
+      expect(api.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ focusMode: false }))
     })
-
-    updateSettings.mockRestore()
   })
 })

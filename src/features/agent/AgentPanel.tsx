@@ -36,11 +36,17 @@ export const AgentPanel: React.FC = () => {
   const handleApplyPlan = () => {
     const result = applyPendingPlan()
     if (result.ok) {
-      toast.success('助理修改已应用')
+      toast.success(isInsertOnlyPlan ? '已确认插入' : '助理修改已应用')
     } else {
       toast.error(result.error)
     }
   }
+
+  const isInsertOnlyPlan = Boolean(
+    pendingPlan
+    && pendingPlan.operations.length > 0
+    && pendingPlan.operations.every((operation) => operation.type === 'insertNode'),
+  )
 
   return (
     <aside className="flex h-full w-[360px] shrink-0 flex-col border-l border-zinc-200 bg-white text-zinc-800 shadow-sm">
@@ -93,7 +99,7 @@ export const AgentPanel: React.FC = () => {
                   {pendingPlan.summary || `将更改 ${pendingPlan.operations.length} 个节点`}
                 </div>
                 <div className="mt-1 text-xs leading-5 text-zinc-500">
-                  {pendingPlan.rationale || '更改会先在当前图里预览，应用后可用撤销回退。'}
+                  {pendingPlan.rationale || '更改会先在当前图里预览，确认后可用撤销回退。'}
                 </div>
                 <div className="mt-1 text-[11px] font-medium text-zinc-400">
                   将更改 {pendingPlan.operations.length} 个节点
@@ -157,14 +163,14 @@ export const AgentPanel: React.FC = () => {
                 className="flex h-8 items-center gap-1.5 rounded-md bg-zinc-900 px-3 text-xs font-medium text-white hover:bg-zinc-800"
               >
                 <Check size={13} />
-                应用修改
+                {isInsertOnlyPlan ? '确认插入' : '应用修改'}
               </button>
               <button
                 type="button"
                 onClick={rejectPendingPlan}
                 className="flex h-8 items-center gap-1.5 rounded-md border border-zinc-200 px-3 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
               >
-                拒绝
+                {isInsertOnlyPlan ? '撤回' : '拒绝'}
               </button>
             </div>
           </section>

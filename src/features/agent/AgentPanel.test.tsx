@@ -135,7 +135,7 @@ describe('AgentPanel', () => {
     expect(useAgentStore.getState().isSending).toBe(false)
   })
 
-  it('applies mind map tool calls directly to the current document', () => {
+  it('previews mind map tool calls until the user confirms them', () => {
     const doc = useDocumentStore.getState().currentDoc!
     render(<AgentPanel />)
 
@@ -160,6 +160,17 @@ describe('AgentPanel', () => {
       }))
     })
 
+    expect(useDocumentStore.getState().currentDoc?.root.children).toHaveLength(2)
+    expect(screen.getAllByText('待确认插入 1 个节点')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: '确认插入' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '撤回' })).toBeInTheDocument()
+    expect(useAgentStore.getState().pendingPlan?.operations[0]).toMatchObject({
+      type: 'insertNode',
+      parentNodeId: doc.root.id,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '确认插入' }))
+
     expect(useDocumentStore.getState().currentDoc?.root.children[2]).toMatchObject({
       text: 'Agent 直接生成',
       children: [
@@ -167,7 +178,34 @@ describe('AgentPanel', () => {
       ],
     })
     expect(useDocumentStore.getState().canUndo).toBe(true)
-    expect(screen.getByText('已插入 1 个节点')).toBeInTheDocument()
+    expect(useAgentStore.getState().pendingPlan).toBeNull()
+  })
+
+  it('withdraws mind map tool call previews without changing the document', () => {
+    const doc = useDocumentStore.getState().currentDoc!
+    render(<AgentPanel />)
+
+    act(() => {
+      useAgentStore.getState().handleRpcEvent?.(JSON.stringify({
+        type: 'tool_result',
+        toolName: 'mindmap_insert_nodes',
+        params: {
+          documentId: doc.id,
+          snapshotKey: JSON.stringify(doc),
+          parentNodeId: doc.root.id,
+          nodes: [
+            {
+              text: '不应插入',
+            },
+          ],
+        },
+      }))
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '撤回' }))
+
+    expect(useDocumentStore.getState().currentDoc?.root.children).toHaveLength(2)
+    expect(useDocumentStore.getState().canUndo).toBe(false)
     expect(useAgentStore.getState().pendingPlan).toBeNull()
   })
 
