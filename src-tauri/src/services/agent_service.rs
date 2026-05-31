@@ -91,6 +91,7 @@ pub fn send_message(
         state.last_abort_requested = false;
     }
 
+    // 启动命令只登记状态并派发后台任务，避免阻塞 Tauri command 调用和前端交互。
     tauri::async_runtime::spawn(runtime::run_agent_turn(
         app,
         AgentRuntimeRequest {
@@ -153,6 +154,7 @@ pub fn parse_rpc_record(line: &str) -> AppResult<AgentRpcRecord> {
         .map_err(|error| AppError::JsonParse(format!("Agent RPC 行解析失败: {error}")))?;
 
     if value.get("jsonrpc").and_then(Value::as_str) == Some("2.0") {
+        // JSON-RPC 里带 method 的记录是工具请求，不带 method 的记录是对前序调用的响应。
         if let Some(method) = value.get("method").and_then(Value::as_str) {
             let id = value
                 .get("id")
@@ -238,6 +240,7 @@ fn runtime_state() -> &'static Mutex<AgentRuntimeState> {
 pub fn handle_tool_request(app: &tauri::AppHandle, id: String, method: String, params: Value) -> Value {
     let result = match method.as_str() {
         "mindmap.insertNodes" | "mindmap.insert_nodes" => {
+            // 写操作只发给前端生成待确认计划，真正修改文档仍由前端按 snapshotKey 校验后执行。
             emit_mindmap_insert_nodes(app, params);
             Ok(json!({
                 "accepted": true,

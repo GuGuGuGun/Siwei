@@ -121,6 +121,7 @@ export function applyAgentChangePlanToDocument(
   plan: AgentChangePlan,
   options: { validateOnly?: boolean } = {},
 ): AgentPlanResult {
+  // snapshotKey 是计划审核和应用之间的乐观锁，避免把旧文档上的操作误用到新状态。
   if (plan.documentId !== doc.id) {
     return { ok: false, error: '修改计划不属于当前文档' }
   }
@@ -162,6 +163,7 @@ export function applyAgentChangePlanToDocument(
 function validatePlanRiskSemantics(plan: AgentChangePlan): { ok: true } | { ok: false; error: string } {
   const deleteOperations = plan.operations.filter((operation) => operation.type === 'deleteNode')
   if (deleteOperations.length === 0) return { ok: true }
+  // 删除会造成不可逆信息损失，因此要求模型显式标高风险并给出理由或引用。
   if (plan.riskLevel !== 'high') return { ok: false, error: '删除节点必须标记为高风险' }
 
   const hasReference = plan.references.length > 0
@@ -299,6 +301,7 @@ function moveNode(
   if (!source) return { ok: false, error: `节点不存在: ${nodeId}` }
   if (!targetParent) return { ok: false, error: `目标父节点不存在: ${targetParentNodeId}` }
   if (source.path.length === 0) return { ok: false, error: '不能移动根节点' }
+  // Agent 计划同样必须维护树结构不变量，不能把节点移动到自身子树里。
   if (isPathPrefix(source.path, targetParent.path)) {
     return { ok: false, error: '不能将节点移动到自身或其子节点下' }
   }
@@ -426,6 +429,7 @@ function adjustTargetPathAfterRemoval(sourcePath: number[], targetParentPath: nu
   const sourceParentPath = sourcePath.slice(0, -1)
   if (!isPathPrefix(sourceParentPath, targetParentPath)) return targetParentPath
 
+  // 目标父级位于源节点后方时，先删除源节点会改变该层索引，需要提前修正路径。
   const sourceIndex = sourcePath[sourcePath.length - 1]
   const affectedDepth = sourceParentPath.length
   const targetIndexAtDepth = targetParentPath[affectedDepth]

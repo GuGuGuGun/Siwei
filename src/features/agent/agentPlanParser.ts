@@ -20,6 +20,7 @@ export function parseAgentResponseText(
   const jsonText = extractJsonObject(strippedText)
   if (!jsonText) return { kind: 'message', text }
 
+  // 先走严格协议，只有完整 JSON 对象不满足新 schema 时才降级到旧模型兼容路径。
   if (isBalancedJsonObjectText(jsonText)) {
     const parsed = JSON.parse(jsonText)
     const strictPlan = normalizeStrictChangePlan(parsed)
@@ -134,6 +135,7 @@ function normalizeLegacyConcatenatedObjects(
   text: string,
   currentDoc: OutlineDocument,
 ): AgentChangePlan | null {
+  // 旧版模型可能连续输出多个顶层 JSON 对象，这里逐个提取后合并为一次可审阅计划。
   const objects = extractTopLevelJsonObjects(text)
     .map((objectText) => {
       try {
@@ -170,6 +172,7 @@ function extractTopLevelJsonObjects(text: string): string[] {
   let inString = false
   let escaped = false
 
+  // 手写扫描器需要识别字符串和转义字符，避免把 JSON 字符串里的花括号误判为对象边界。
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index]
     if (inString) {
@@ -278,6 +281,7 @@ function normalizeReference(value: unknown): AgentReference | null {
 
 function extractTreeLikeInsertedNodes(value: Record<string, unknown>): AgentInsertedNode[] {
   if (isRecord(value.root)) {
+    // 兼容整棵文档树输出：根节点只是容器，真正要插入的是 root.children。
     const rootChildren = Array.isArray(value.root.children)
       ? value.root.children
       : []
@@ -389,6 +393,7 @@ function normalizeInsertedNode(value: Record<string, unknown>): AgentInsertedNod
 function normalizeFlexibleInsertedNode(value: unknown): AgentInsertedNode | null {
   if (!isRecord(value)) return null
 
+  // 旧格式常混用 text/title/label/name 和 id/nodeId，只在兼容入口做字段归一，严格协议仍保持收紧。
   const text = firstString(value.text, value.title, value.label, value.name)
   if (!text) return null
 
@@ -421,6 +426,7 @@ function isBalancedJsonObjectText(text: string): boolean {
   let inString = false
   let escaped = false
 
+  // 只有单个完整对象才允许 JSON.parse；混杂解释文本或拼接对象会进入兼容解析。
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index]
     if (inString) {

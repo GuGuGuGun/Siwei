@@ -279,6 +279,7 @@ const adjustTargetParentPathAfterRemoval = (
   const sourceParentPath = sourcePath.slice(0, -1);
   if (!isPathPrefix(sourceParentPath, targetParentPath)) return targetParentPath;
 
+  // 删除源节点会让同一祖先分支中位于其后的索引整体前移，跨层拖拽时必须先校正目标父路径。
   const sourceIndex = sourcePath[sourcePath.length - 1];
   const affectedDepth = sourceParentPath.length;
   const targetIndexAtDepth = targetParentPath[affectedDepth];
@@ -301,6 +302,7 @@ export function moveNodeToParentIndexAtPath(
 ): OutlineNode {
   if (sourcePath.length === 0 || targetIndex < 0) return root;
   if (!isValidPath(root, sourcePath) || !isValidPath(root, targetParentPath)) return root;
+  // 禁止把节点移动到自身或后代下，否则会形成环，破坏大纲树的不变量。
   if (arePathsEqual(sourcePath, targetParentPath) || isPathPrefix(sourcePath, targetParentPath)) return root;
 
   const sourceParentPath = sourcePath.slice(0, -1);
@@ -309,6 +311,7 @@ export function moveNodeToParentIndexAtPath(
   if (!targetParent || targetIndex > targetParent.children.length) return root;
 
   if (arePathsEqual(sourceParentPath, targetParentPath)) {
+    // 同父级重排时，先移除源节点再插入；目标索引在源节点之后时需要抵消一次删除造成的位移。
     const childCountAfterRemoval = targetParent.children.length - 1;
     if (targetIndex > childCountAfterRemoval + 1) return root;
     const insertionIndex = targetIndex > sourceIndex ? targetIndex - 1 : targetIndex;
@@ -372,6 +375,7 @@ export function getVisibleNodes(
 
   const traverse = (node: OutlineNode, depth: number, path: number[], parentId: string | null): boolean => {
     const isCollapsed = depth >= 0 && (node.collapsed || collapsedNodeIds.has(node.id))
+    // 即使父节点自身不匹配，也要保留命中的后代及其展示路径，过滤视图才不会丢失层级上下文。
     const childMatches = node.children
       .map((child, index) => {
         if (isCollapsed) return false

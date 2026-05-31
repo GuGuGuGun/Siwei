@@ -69,6 +69,7 @@ async fn run_openai_turn(app: &tauri::AppHandle, request: AgentRuntimeRequest) -
             return Ok(());
         }
 
+        // OpenAI 工具调用需要把 assistant tool_calls 与每个 tool 结果都写回历史，模型才能继续生成最终答复。
         messages.push(openai_assistant_tool_call_message(&outcome.tool_calls));
         for call in outcome.tool_calls {
             let result = execute_tool_call(app, &call)?;
@@ -146,6 +147,7 @@ async fn run_claude_turn(app: &tauri::AppHandle, request: AgentRuntimeRequest) -
             return Ok(());
         }
 
+        // Claude 协议要求 tool_result 作为下一条 user 消息返回，因此与 OpenAI 的历史结构分开构造。
         messages.push(claude_assistant_tool_call_message(&outcome.tool_calls));
         messages.push(claude_tool_result_message(app, &outcome.tool_calls)?);
     }
@@ -213,6 +215,7 @@ fn collect_and_emit_stream_event(
     match event {
         AgentStreamEvent::TextDelta { text } => {
             outcome.text.push_str(&text);
+            // 前端只接收增量文本事件，完整文本留在 outcome 中用于判断本轮是否还需要工具调用。
             let _ = app.emit(
                 "agent://event",
                 json!({
@@ -245,6 +248,7 @@ fn execute_tool_call(app: &tauri::AppHandle, call: &AgentToolCall) -> AppResult<
         "library.search" => "library.search",
         other => other,
     };
+    // Runtime 只负责桥接工具调用，具体只读文档库和脑图写入校验仍由 agent_service 统一处理。
     let response = agent_service::handle_tool_request(
         app,
         call.id.clone(),
@@ -379,6 +383,7 @@ impl SseDecoder {
         self.buffer.push_str(&String::from_utf8_lossy(chunk));
         let mut events = Vec::new();
 
+        // SSE 事件可能跨 TCP chunk 到达，因此缓存半行并只在空行出现时产出完整事件。
         while let Some(newline_index) = self.buffer.find('\n') {
             let mut line = self.buffer[..newline_index].to_string();
             if line.ends_with('\r') {
