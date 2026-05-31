@@ -9,7 +9,7 @@ pub use agent::{
     AgentContextScope, AgentDocumentContext, AgentDocumentNodeContext, AgentLibraryDocumentRef,
     AgentLibrarySearchRef, AgentLibrarySearchToolQuery, AgentStatus,
 };
-pub use document::{OutlineDocument, OutlineNode};
+pub use document::{MindMapLayoutState, OutlineDocument, OutlineNode};
 pub use library::{
     LibraryDocumentItem, LibraryDocumentQuery, LibraryDocumentStatus, LibraryHighlightRange,
     LibraryLocation, LibraryLocationSource, LibraryMatchedField, LibraryNodeIndexItem, LibraryPage,

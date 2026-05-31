@@ -5,8 +5,13 @@ import type {
   MindMapLayoutStrategy,
 } from '../../types/document'
 
-export const MIND_MAP_LAYOUT_ENGINE_VERSION = 1
+export const MIND_MAP_LAYOUT_ENGINE_VERSION = 2
 export const DEFAULT_MIND_MAP_LAYOUT_STRATEGY: MindMapLayoutStrategy = 'classic-dagre'
+export const SUPPORTED_MIND_MAP_LAYOUT_STRATEGIES = [
+  'classic-dagre',
+  'balanced-mindmap',
+  'radial-mindmap',
+] as const
 
 export type LegacyMindMapLayoutState = Record<string, MindMapLayoutPosition>
 

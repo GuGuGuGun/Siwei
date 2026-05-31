@@ -72,6 +72,7 @@ export const MindMapToolbar: React.FC<MindMapToolbarProps> = ({
         >
           <option value="classic-dagre">经典</option>
           <option value="balanced-mindmap">平衡</option>
+          <option value="radial-mindmap">径向</option>
         </select>
       )}
       <button

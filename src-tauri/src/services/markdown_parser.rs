@@ -22,6 +22,7 @@ pub fn import_markdown(content: &str) -> Result<OutlineDocument, AppError> {
         }
 
         if let Some(marker) = fenced_code_open_marker(line) {
+            // 代码块内的列表、标签和引用只是文本内容，不能导入成真实节点或备注。
             fenced_code_marker = Some(marker);
             continue;
         }
@@ -212,6 +213,7 @@ fn parse_trailing_tags(text: &str) -> (String, Option<Vec<String>>) {
     let mut parts: Vec<&str> = text.split_whitespace().collect();
     let mut reversed_tags = Vec::new();
 
+    // 只把连续出现在行尾的 #tag 视作标签，中间出现的 #文本 保留在节点正文里。
     while let Some(part) = parts.last() {
         let Some(tag) = part.strip_prefix('#') else {
             break;
@@ -279,6 +281,7 @@ fn build_level(
         }
 
         if entry.depth > depth {
+            // 缩进跳级说明 Markdown 缺少父节点，继续导入会生成用户无法预期的树形结构。
             return Err(AppError::MarkdownParse(format!(
                 "第 {} 行列表缩进跳级，缺少父级列表项",
                 entry.line
@@ -301,6 +304,7 @@ fn build_level(
 
         if *index < entries.len() && entries[*index].depth > depth {
             if entries[*index].depth != depth + 1 {
+                // 子列表只能比父项深一层，防止把非法缩进静默挂到错误父节点上。
                 return Err(AppError::MarkdownParse(format!(
                     "第 {} 行列表缩进跳级，缺少父级列表项",
                     entries[*index].line

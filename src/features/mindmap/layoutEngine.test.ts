@@ -30,7 +30,7 @@ describe('layoutMindMap', () => {
 
     expect(result.nodes).toHaveLength(graphData.nodes.length)
     expect(result.layoutState).toMatchObject({
-      engineVersion: 1,
+      engineVersion: 2,
       strategy: 'classic-dagre',
     })
     expect(result.layoutState?.nodes.root.position).toEqual(result.nodes.find((node) => node.id === 'root')?.position)
@@ -160,6 +160,112 @@ describe('layoutMindMap', () => {
     expect(result.layoutState).toBeUndefined()
   })
 
+  it('lays out radial mind maps from the document root clockwise and deterministically', () => {
+    const radialRoot = createNode('root', 'Root', [
+      createNode('first', 'First'),
+      createNode('second', 'Second'),
+      createNode('third', 'Third'),
+    ])
+    const input = {
+      root: radialRoot,
+      graphData: outlineToGraph(radialRoot, new Set()),
+      collapsedNodeIds: new Set<string>(),
+      strategy: 'radial-mindmap' as const,
+      nodeSizes: {},
+      mode: 'persistent' as const,
+    }
+
+    const first = layoutMindMap(input)
+    const second = layoutMindMap(input)
+    const centerById = getCenterById(first.nodes)
+
+    expect(centerById.root.x).toBeCloseTo(0)
+    expect(centerById.root.y).toBeCloseTo(0)
+    expect(centerById.first.x).toBeGreaterThan(centerById.root.x)
+    expect(Math.abs(centerById.first.y)).toBeLessThan(1)
+    expect(centerById.second.x).toBeLessThan(centerById.root.x)
+    expect(centerById.second.y).toBeGreaterThan(centerById.root.y)
+    expect(centerById.third.x).toBeLessThan(centerById.root.x)
+    expect(centerById.third.y).toBeLessThan(centerById.root.y)
+    expect(first.nodes.map((node) => [node.id, node.position])).toEqual(
+      second.nodes.map((node) => [node.id, node.position]),
+    )
+    expect(first.layoutState).toMatchObject({
+      engineVersion: 2,
+      strategy: 'radial-mindmap',
+    })
+  })
+
+  it('keeps radial child nodes inside their parent sector in outline order', () => {
+    const radialRoot = createNode('root', 'Root', [
+      createNode('topic', 'Topic', [
+        createNode('topic-a', 'Topic A'),
+        createNode('topic-b', 'Topic B'),
+      ]),
+      createNode('other', 'Other'),
+    ])
+
+    const result = layoutMindMap({
+      root: radialRoot,
+      graphData: outlineToGraph(radialRoot, new Set()),
+      collapsedNodeIds: new Set(),
+      strategy: 'radial-mindmap',
+      nodeSizes: {},
+      mode: 'persistent',
+    })
+    const centerById = getCenterById(result.nodes)
+
+    expect(centerById.topic.x).toBeGreaterThan(centerById.root.x)
+    expect(centerById['topic-a'].x).toBeGreaterThan(centerById.topic.x)
+    expect(centerById['topic-b'].x).toBeGreaterThan(centerById.topic.x)
+    expect(centerById['topic-a'].y).toBeLessThan(centerById.topic.y)
+    expect(centerById['topic-b'].y).toBeGreaterThan(centerById.topic.y)
+  })
+
+  it('preserves locked radial nodes without moving automatic nodes', () => {
+    const radialRoot = createNode('root', 'Root', [
+      createNode('locked', 'Locked'),
+      createNode('auto', 'Auto'),
+    ])
+    const baseInput = {
+      root: radialRoot,
+      graphData: outlineToGraph(radialRoot, new Set()),
+      collapsedNodeIds: new Set<string>(),
+      strategy: 'radial-mindmap' as const,
+      nodeSizes: {},
+      mode: 'persistent' as const,
+    }
+    const withoutLock = layoutMindMap(baseInput)
+    const persistedLayout: MindMapLayoutState = {
+      engineVersion: 2,
+      strategy: 'radial-mindmap',
+      nodes: {
+        locked: {
+          position: { x: 999, y: 888 },
+          source: 'manual',
+          locked: true,
+          updatedAt: 10,
+        },
+      },
+    }
+
+    const withLock = layoutMindMap({
+      ...baseInput,
+      persistedLayout,
+    })
+
+    expect(withLock.nodes.find((node) => node.id === 'locked')?.position).toEqual({ x: 999, y: 888 })
+    expect(withLock.nodes.find((node) => node.id === 'auto')?.position).toEqual(
+      withoutLock.nodes.find((node) => node.id === 'auto')?.position,
+    )
+    expect(withLock.layoutState?.nodes.locked).toMatchObject({
+      position: { x: 999, y: 888 },
+      source: 'manual',
+      locked: true,
+      updatedAt: 10,
+    })
+  })
+
   it('estimates larger fallback sizes for nodes with rich content', () => {
     const plain = createNode('plain', '短')
     const rich = {
@@ -173,3 +279,10 @@ describe('layoutMindMap', () => {
     expect(estimateMindMapNodeSize(rich).height).toBeGreaterThan(estimateMindMapNodeSize(plain).height)
   })
 })
+
+function getCenterById(nodes: Array<{ id: string; position: { x: number; y: number } }>) {
+  return Object.fromEntries(nodes.map((node) => [node.id, {
+    x: node.position.x + 100,
+    y: node.position.y + 22,
+  }]))
+}

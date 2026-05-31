@@ -13,7 +13,7 @@ export interface MindMapLayoutPosition {
   y: number
 }
 
-export type MindMapLayoutStrategy = 'classic-dagre' | 'balanced-mindmap'
+export type MindMapLayoutStrategy = 'classic-dagre' | 'balanced-mindmap' | 'radial-mindmap' | (string & {})
 export type MindMapLayoutNodeSource = 'auto' | 'manual'
 
 export interface MindMapLayoutState {

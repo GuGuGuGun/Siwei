@@ -11,6 +11,7 @@ import {
   DEFAULT_MIND_MAP_LAYOUT_STRATEGY,
   MIND_MAP_LAYOUT_ENGINE_VERSION,
   normalizeMindMapLayoutState,
+  SUPPORTED_MIND_MAP_LAYOUT_STRATEGIES,
 } from './mindMapLayoutState'
 
 export interface MindMapNodeSize {
@@ -45,6 +46,9 @@ const MAX_ESTIMATED_NODE_WIDTH = 320
 const MIN_ESTIMATED_NODE_WIDTH = 160
 const LEVEL_GAP = 260
 const SIBLING_GAP = 34
+const RADIAL_BASE_RADIUS = 280
+const RADIAL_LEVEL_RADIUS_GAP = 240
+const RADIAL_MIN_SECTOR_RADIANS = Math.PI / 10
 
 export function estimateMindMapNodeSize(node: OutlineNode): MindMapNodeSize {
   const textWidth = Math.min(MAX_ESTIMATED_NODE_WIDTH, Math.max(MIN_ESTIMATED_NODE_WIDTH, 96 + node.text.length * 8))
@@ -61,11 +65,12 @@ export function estimateMindMapNodeSize(node: OutlineNode): MindMapNodeSize {
 }
 
 export function layoutMindMap(input: MindMapLayoutInput): MindMapLayoutResult {
-  const engine = input.strategy === 'balanced-mindmap' ? balancedMindMapEngine : classicDagreEngine
+  const engine = resolveLayoutEngine(input.strategy)
 
   try {
     return engine.layout(input)
   } catch (error) {
+    // 实验布局失败时回退到经典布局，保证用户仍能看到脑图而不是整屏空白。
     if (input.strategy === DEFAULT_MIND_MAP_LAYOUT_STRATEGY) throw error
     return {
       ...classicDagreEngine.layout({ ...input, strategy: DEFAULT_MIND_MAP_LAYOUT_STRATEGY }),
@@ -79,6 +84,7 @@ export const classicDagreEngine: MindMapLayoutEngine = {
     const layouted = layoutGraph(input.graphData, {
       savedLayout: Object.fromEntries(
         Object.entries(normalizeMindMapLayoutState(input.persistedLayout)?.nodes ?? {})
+          // 经典布局只保留用户锁定的手动节点，避免旧自动坐标阻止重新排版。
           .filter(([, state]) => state.locked)
           .map(([nodeId, state]) => [nodeId, state.position]),
       ),
@@ -97,6 +103,7 @@ export const balancedMindMapEngine: MindMapLayoutEngine = {
     const persisted = normalizeMindMapLayoutState(input.persistedLayout)
     const visibleChildren = input.root.children.filter((child) => graphNodeIds.has(child.id))
 
+    // 单主题文档以主题居中、根节点退到一侧，更贴近“标题 + 中心主题”的脑图阅读习惯。
     if (visibleChildren.length === 1) {
       layoutSingleTopicMindMap({
         input,
@@ -124,6 +131,56 @@ export const balancedMindMapEngine: MindMapLayoutEngine = {
 
     return createResult(input, nodes, attachDirectionalEdgeHandles(input.graphData.edges, nodes, input.nodeSizes))
   },
+}
+
+export const radialMindMapEngine: MindMapLayoutEngine = {
+  layout(input) {
+    const graphNodeIds = new Set(input.graphData.nodes.map((node) => node.id))
+    const positions = new Map<string, MindMapLayoutPosition>()
+    const persisted = normalizeMindMapLayoutState(input.persistedLayout)
+
+    layoutRadialNode({
+      node: input.root,
+      depth: 0,
+      centerAngle: 0,
+      sectorStartAngle: 0,
+      sectorEndAngle: Math.PI * 2,
+      graphNodeIds,
+      input,
+      positions,
+      persisted,
+    })
+
+    const nodes = input.graphData.nodes.map((node) => {
+      const position = positions.get(node.id) ?? node.position
+      const size = resolveNodeSize(node.id, input.nodeSizes)
+      const centerX = position.x + size.width / 2
+      const centerY = position.y + size.height / 2
+
+      return {
+        ...node,
+        // 连线手柄按节点相对圆心方向切换，减少径向布局中边线穿过节点主体。
+        targetPosition: centerX < 0 ? Position.Right : Position.Left,
+        sourcePosition: centerX < 0 ? Position.Left : Position.Right,
+        position,
+        data: {
+          ...node.data,
+          radialAngle: Math.atan2(centerY, centerX),
+        },
+      }
+    })
+
+    return createResult(input, nodes, attachDirectionalEdgeHandles(input.graphData.edges, nodes, input.nodeSizes))
+  },
+}
+
+function resolveLayoutEngine(strategy: MindMapLayoutStrategy): MindMapLayoutEngine {
+  if (strategy === 'balanced-mindmap') return balancedMindMapEngine
+  if (strategy === 'radial-mindmap') return radialMindMapEngine
+  if (!SUPPORTED_MIND_MAP_LAYOUT_STRATEGIES.includes(strategy as typeof SUPPORTED_MIND_MAP_LAYOUT_STRATEGIES[number])) {
+    return classicDagreEngine
+  }
+  return classicDagreEngine
 }
 
 function layoutBalancedRootMindMap(params: {
@@ -206,6 +263,7 @@ function createResult(input: MindMapLayoutInput, nodes: FlowNode[], edges: FlowE
     return { nodes, edges }
   }
 
+  // 只有持久模式写回布局状态；搜索、聚焦和 Agent 预览等临时视图不污染用户保存的坐标。
   return {
     nodes,
     edges,
@@ -260,6 +318,7 @@ function splitBalancedBranches(children: OutlineNode[]): { left: OutlineNode[]; 
   children.forEach((child, index) => {
     const weight = getSubtreeWeight(child)
     const preferLeft = index % 2 === 0
+    // 按子树规模动态分配左右分支，避免节点数量相同但内容深度差异导致一侧过重。
     if (leftWeight <= rightWeight && preferLeft || rightWeight > leftWeight) {
       left.push(child)
       leftWeight += weight
@@ -288,6 +347,7 @@ function layoutBranchGroup(params: {
   const totalHeight = params.children.reduce((sum, child) => sum + estimateSubtreeHeight(child, params.input, params.graphNodeIds), 0)
   let cursorY = -totalHeight / 2
 
+  // 先估算每棵子树占用高度，再用游标逐段居中摆放，降低兄弟分支重叠概率。
   params.children.forEach((child) => {
     const subtreeHeight = estimateSubtreeHeight(child, params.input, params.graphNodeIds)
     layoutSubtree({
@@ -339,6 +399,70 @@ function layoutSubtree(params: {
     })
     cursorY += subtreeHeight
   })
+}
+
+function layoutRadialNode(params: {
+  node: OutlineNode
+  depth: number
+  centerAngle: number
+  sectorStartAngle: number
+  sectorEndAngle: number
+  graphNodeIds: Set<string>
+  input: MindMapLayoutInput
+  positions: Map<string, MindMapLayoutPosition>
+  persisted?: MindMapLayoutState
+}) {
+  const { node, depth, centerAngle, sectorStartAngle, sectorEndAngle, graphNodeIds, input, positions, persisted } = params
+  if (!graphNodeIds.has(node.id)) return
+
+  const size = resolveNodeSize(node.id, input.nodeSizes)
+  const angle = depth === 0 ? 0 : normalizeAngle(centerAngle)
+  const radius = depth === 0 ? 0 : RADIAL_BASE_RADIUS + Math.max(0, depth - 1) * RADIAL_LEVEL_RADIUS_GAP
+  const center = {
+    x: Math.cos(angle) * radius,
+    y: Math.sin(angle) * radius,
+  }
+  const autoPosition = {
+    x: center.x - size.width / 2,
+    y: center.y - size.height / 2,
+  }
+  const persistedNode = persisted?.nodes[node.id]
+  positions.set(node.id, persistedNode?.locked ? persistedNode.position : autoPosition)
+
+  const children = node.children.filter((child) => graphNodeIds.has(child.id))
+  if (children.length === 0) return
+
+  // 每个节点把自己的角度扇区平均分给可见子节点，深层分支至少保留一个最小扇区避免挤成一条线。
+  const sectorSize = depth === 0
+    ? Math.PI * 2
+    : Math.max(RADIAL_MIN_SECTOR_RADIANS, sectorEndAngle - sectorStartAngle)
+  const childSectorSize = sectorSize / children.length
+
+  children.forEach((child, index) => {
+    const childCenter = children.length === 1
+      ? angle
+      : depth === 0
+        ? index * childSectorSize
+        : sectorStartAngle + childSectorSize * (index + 0.5)
+    const childStart = childCenter - childSectorSize / 2
+    const childEnd = childStart + childSectorSize
+    layoutRadialNode({
+      node: child,
+      depth: depth + 1,
+      centerAngle: childCenter,
+      sectorStartAngle: childStart,
+      sectorEndAngle: childEnd,
+      graphNodeIds,
+      input,
+      positions,
+      persisted,
+    })
+  })
+}
+
+function normalizeAngle(angle: number): number {
+  if (angle > Math.PI) return angle - Math.PI * 2
+  return angle
 }
 
 function estimateSubtreeHeight(

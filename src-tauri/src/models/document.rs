@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, HashSet},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -29,11 +32,17 @@ pub enum MindMapLayoutState {
     Legacy(BTreeMap<String, MindMapLayoutPosition>),
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MindMapLayoutStrategy {
+    Known(MindMapLayoutStrategyKind),
+    Unknown(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MindMapLayoutStrategyKind {
     ClassicDagre,
     BalancedMindmap,
+    RadialMindmap,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -129,8 +138,8 @@ impl MindMapLayoutState {
                 nodes,
             },
             MindMapLayoutState::Legacy(positions) => MindMapLayoutState::V1 {
-                engine_version: 1,
-                strategy: MindMapLayoutStrategy::ClassicDagre,
+                engine_version: 2,
+                strategy: MindMapLayoutStrategy::classic_dagre(),
                 nodes: positions
                     .into_iter()
                     .map(|(node_id, position)| {
@@ -176,6 +185,57 @@ impl MindMapLayoutState {
         }
 
         Ok(())
+    }
+}
+
+impl MindMapLayoutStrategy {
+    pub fn classic_dagre() -> Self {
+        MindMapLayoutStrategy::Known(MindMapLayoutStrategyKind::ClassicDagre)
+    }
+
+    pub fn balanced_mindmap() -> Self {
+        MindMapLayoutStrategy::Known(MindMapLayoutStrategyKind::BalancedMindmap)
+    }
+
+    pub fn as_str(&self) -> Cow<'_, str> {
+        match self {
+            MindMapLayoutStrategy::Known(MindMapLayoutStrategyKind::ClassicDagre) => {
+                Cow::Borrowed("classic-dagre")
+            }
+            MindMapLayoutStrategy::Known(MindMapLayoutStrategyKind::BalancedMindmap) => {
+                Cow::Borrowed("balanced-mindmap")
+            }
+            MindMapLayoutStrategy::Known(MindMapLayoutStrategyKind::RadialMindmap) => {
+                Cow::Borrowed("radial-mindmap")
+            }
+            MindMapLayoutStrategy::Unknown(value) => Cow::Borrowed(value.as_str()),
+        }
+    }
+}
+
+impl Serialize for MindMapLayoutStrategy {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str().as_ref())
+    }
+}
+
+impl<'de> Deserialize<'de> for MindMapLayoutStrategy {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "classic-dagre" => MindMapLayoutStrategy::classic_dagre(),
+            "balanced-mindmap" => MindMapLayoutStrategy::balanced_mindmap(),
+            "radial-mindmap" => {
+                MindMapLayoutStrategy::Known(MindMapLayoutStrategyKind::RadialMindmap)
+            }
+            _ => MindMapLayoutStrategy::Unknown(value),
+        })
     }
 }
 
@@ -342,8 +402,8 @@ mod tests {
         let mut doc = sample_doc();
         doc.version = 2;
         doc.mind_map_layout = Some(MindMapLayoutState::V1 {
-            engine_version: 1,
-            strategy: MindMapLayoutStrategy::BalancedMindmap,
+            engine_version: 2,
+            strategy: MindMapLayoutStrategy::balanced_mindmap(),
             nodes: BTreeMap::from([(
                 "child_123".to_string(),
                 MindMapLayoutNodeState {
@@ -360,7 +420,7 @@ mod tests {
         assert_eq!(
             value["mindMapLayout"],
             json!({
-                "engineVersion": 1,
+                "engineVersion": 2,
                 "strategy": "balanced-mindmap",
                 "nodes": {
                     "child_123": {
@@ -405,8 +465,8 @@ mod tests {
         let mut doc = sample_doc();
         doc.version = 2;
         doc.mind_map_layout = Some(MindMapLayoutState::V1 {
-            engine_version: 1,
-            strategy: MindMapLayoutStrategy::ClassicDagre,
+            engine_version: 2,
+            strategy: MindMapLayoutStrategy::classic_dagre(),
             nodes: BTreeMap::from([(
                 "child_123".to_string(),
                 MindMapLayoutNodeState {
@@ -419,6 +479,61 @@ mod tests {
         });
 
         assert!(doc.validate().is_ok());
+    }
+
+    #[test]
+    fn deserializes_radial_and_unknown_mind_map_layout_strategies() {
+        let radial_doc: OutlineDocument = serde_json::from_value(json!({
+            "id": "doc_123",
+            "title": "Title",
+            "version": 2,
+            "createdAt": 1,
+            "updatedAt": 1,
+            "mindMapLayout": {
+                "engineVersion": 2,
+                "strategy": "radial-mindmap",
+                "nodes": {}
+            },
+            "root": {
+                "id": "root_123",
+                "text": "Title",
+                "createdAt": 1,
+                "updatedAt": 1,
+                "children": []
+            }
+        }))
+        .unwrap();
+        let unknown_doc: OutlineDocument = serde_json::from_value(json!({
+            "id": "doc_123",
+            "title": "Title",
+            "version": 2,
+            "createdAt": 1,
+            "updatedAt": 1,
+            "mindMapLayout": {
+                "engineVersion": 2,
+                "strategy": "future-layout",
+                "nodes": {}
+            },
+            "root": {
+                "id": "root_123",
+                "text": "Title",
+                "createdAt": 1,
+                "updatedAt": 1,
+                "children": []
+            }
+        }))
+        .unwrap();
+
+        assert!(radial_doc.validate().is_ok());
+        assert!(unknown_doc.validate().is_ok());
+        assert_eq!(
+            serde_json::to_value(radial_doc).unwrap()["mindMapLayout"]["strategy"],
+            json!("radial-mindmap")
+        );
+        assert_eq!(
+            serde_json::to_value(unknown_doc).unwrap()["mindMapLayout"]["strategy"],
+            json!("future-layout")
+        );
     }
 
     #[test]
@@ -451,11 +566,14 @@ mod tests {
         .unwrap();
 
         let layout = doc.mind_map_layout.unwrap().normalize();
-        let MindMapLayoutState::V1 { nodes, strategy, .. } = layout else {
+        let MindMapLayoutState::V1 {
+            nodes, strategy, ..
+        } = layout
+        else {
             panic!("legacy layout should normalize to v1");
         };
 
-        assert_eq!(strategy, MindMapLayoutStrategy::ClassicDagre);
+        assert_eq!(strategy, MindMapLayoutStrategy::classic_dagre());
         assert_eq!(
             nodes["child_123"].position,
             MindMapLayoutPosition { x: 120.0, y: 80.0 }
@@ -469,7 +587,7 @@ mod tests {
         let mut doc = sample_doc();
         doc.mind_map_layout = Some(MindMapLayoutState::V1 {
             engine_version: 0,
-            strategy: MindMapLayoutStrategy::ClassicDagre,
+            strategy: MindMapLayoutStrategy::classic_dagre(),
             nodes: BTreeMap::new(),
         });
         assert!(doc
@@ -481,7 +599,7 @@ mod tests {
         let mut doc = sample_doc();
         doc.mind_map_layout = Some(MindMapLayoutState::V1 {
             engine_version: 1,
-            strategy: MindMapLayoutStrategy::ClassicDagre,
+            strategy: MindMapLayoutStrategy::classic_dagre(),
             nodes: BTreeMap::from([(
                 "child_123".to_string(),
                 MindMapLayoutNodeState {

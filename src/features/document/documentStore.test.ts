@@ -217,7 +217,7 @@ describe('documentStore', () => {
 
     expect(useDocumentStore.getState().currentDoc?.version).toBe(2)
     expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toEqual({
-      engineVersion: 1,
+      engineVersion: 2,
       strategy: 'classic-dagre',
       nodes: {
         'node-1': { position: { x: 120, y: 80 }, source: 'manual', locked: true },
