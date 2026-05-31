@@ -289,6 +289,9 @@ export async function browserInvokeFallback<T>(command: string, args?: CommandAr
         succeeded: 0,
         failed: 0,
         skipped: 0,
+        currentPath: libraryDocs[0]?.path,
+        updatedAt: now(),
+        cancelled: false,
         errors: [],
         startedAt: now(),
       }
@@ -301,6 +304,8 @@ export async function browserInvokeFallback<T>(command: string, args?: CommandAr
           status: 'completed',
           processed: refreshStatus.total,
           succeeded: refreshStatus.total,
+          currentPath: undefined,
+          updatedAt: now(),
           finishedAt: now(),
         }
       }
@@ -312,6 +317,9 @@ export async function browserInvokeFallback<T>(command: string, args?: CommandAr
           ...refreshStatus,
           status: 'cancelled',
           skipped: Math.max(refreshStatus.total - refreshStatus.processed, 0),
+          currentPath: undefined,
+          updatedAt: now(),
+          cancelled: true,
           finishedAt: now(),
         }
       }

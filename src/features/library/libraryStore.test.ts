@@ -43,6 +43,9 @@ const libraryDoc = {
   uncheckedTaskCount: 1,
   tags: ['工作'],
   status: 'ready' as const,
+  lastRefreshAt: 2,
+  lastRefreshDurationMs: 12,
+  lastRefreshStatus: 'ready' as const,
 }
 
 const task = {
@@ -182,6 +185,7 @@ describe('libraryStore', () => {
       skipped: 0,
       errors: [],
       startedAt: 1,
+      cancelled: false,
     })
 
     await useLibraryStore.getState().startRefreshJob()
@@ -202,6 +206,7 @@ describe('libraryStore', () => {
         skipped: 0,
         errors: [],
         startedAt: 1,
+        cancelled: false,
       },
     })
     apiMock.getLibraryRefreshStatus.mockResolvedValueOnce({
@@ -213,7 +218,10 @@ describe('libraryStore', () => {
       failed: 0,
       skipped: 0,
       errors: [],
+      currentPath: 'demo.siwei.json',
       startedAt: 1,
+      updatedAt: 1,
+      cancelled: false,
       finishedAt: 2,
     })
     apiMock.queryLibraryDocs.mockResolvedValueOnce({ items: [libraryDoc], hasMore: false, total: 1 })
@@ -223,6 +231,40 @@ describe('libraryStore', () => {
     expect(apiMock.queryLibraryDocs).toHaveBeenCalled()
     expect(useLibraryStore.getState().docs).toHaveLength(1)
     expect(useLibraryStore.getState().refreshStatus?.status).toBe('completed')
+  })
+
+  it('filters failed documents and preserves refresh diagnostics from the API', async () => {
+    apiMock.queryLibraryDocs.mockResolvedValueOnce({
+      items: [
+        {
+          ...libraryDoc,
+          status: 'invalid',
+          errorSummary: '文档格式无法解析',
+          failureReason: 'invalidJson',
+          lastRefreshAt: 10,
+          lastRefreshDurationMs: 7,
+          lastRefreshStatus: 'invalid',
+        },
+      ],
+      hasMore: false,
+      total: 1,
+    })
+
+    useLibraryStore.getState().setDocsStatusFilter('failed')
+    await useLibraryStore.getState().loadDocs()
+
+    expect(apiMock.queryLibraryDocs).toHaveBeenCalledWith({
+      limit: 50,
+      offset: 0,
+      sortBy: 'updatedAt',
+      sortDirection: 'desc',
+      status: 'failed',
+      keyword: undefined,
+    })
+    expect(useLibraryStore.getState().docs[0]).toMatchObject({
+      failureReason: 'invalidJson',
+      lastRefreshDurationMs: 7,
+    })
   })
 
   it('opens indexed node through documentStore load and focus', async () => {

@@ -89,9 +89,11 @@ test('edits nodes from the mind map and syncs the split outline', async ({ page 
   await page.getByText('开始记录你的想法').click({ button: 'right' })
   await page.getByRole('menuitem', { name: '新增同级节点' }).click()
   await page.getByLabel('编辑节点文本').fill('导图同级节点')
-  await page.getByLabel('编辑节点文本').press('Shift+Enter')
+  await page.getByLabel('编辑节点文本').press('Escape')
+  await page.getByText('导图同级节点').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '新增子节点' }).click()
   await page.getByLabel('编辑节点文本').fill('导图子节点')
-  await page.mouse.click(20, 120)
+  await page.getByLabel('编辑节点文本').press('Escape')
   await expect(page.getByText('导图同级节点')).toBeVisible()
   await expect(page.getByText('导图子节点')).toBeVisible()
 
@@ -154,7 +156,7 @@ test('opens settings workspace and updates effective controls', async ({ page })
   await page.getByRole('button', { name: '导图', exact: true }).click()
   await expect(page.getByRole('button', { name: '导图', exact: true })).toHaveClass(/bg-zinc-900/)
 
-  await page.getByRole('button', { name: '收起' }).click()
+  await page.getByRole('button', { name: '收起', exact: true }).click()
   await expect(page.getByTitle('设置')).toBeVisible()
 
   await page.getByTitle('设置').click()

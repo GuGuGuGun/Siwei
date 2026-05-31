@@ -153,6 +153,16 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown)
   }, [currentDoc, currentFilePath, canDiscardCurrentDoc, undo, redo, newDoc, saveDoc, setViewMode, updateSettings])
 
+  // Tauri WebView 中禁用浏览器默认右键菜单，保留应用内自定义右键菜单入口。
+  React.useEffect(() => {
+    const suppressBrowserContextMenu = (event: MouseEvent) => {
+      event.preventDefault()
+    }
+
+    window.addEventListener('contextmenu', suppressBrowserContextMenu)
+    return () => window.removeEventListener('contextmenu', suppressBrowserContextMenu)
+  }, [])
+
   const handleImport = async (format: 'json' | 'markdown') => {
     if (!canDiscardCurrentDoc()) return
 

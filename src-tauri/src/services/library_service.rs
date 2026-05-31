@@ -13,8 +13,8 @@ use crate::{
     models::{
         LibraryDocumentItem, LibraryDocumentQuery, LibraryDocumentStatus, LibraryHighlightRange,
         LibraryLocation, LibraryLocationSource, LibraryMatchedField, LibraryNodeIndexItem,
-        LibraryPage, LibraryRefreshJobStatus, LibraryRefreshStatus, LibrarySearchMatchSource,
-        LibrarySearchQuery, LibrarySearchResult, LibrarySortBy, LibrarySortDirection,
+        LibraryPage, LibraryRefreshFailureReason, LibraryRefreshJobStatus, LibraryRefreshStatus,
+        LibrarySearchMatchSource, LibrarySearchQuery, LibrarySearchResult, LibrarySortBy, LibrarySortDirection,
         LibraryTagQuery, LibraryTagSummary, LibraryTaskQuery, LibraryTaskSummary, OutlineDocument,
         OutlineNode,
     },
@@ -51,6 +51,10 @@ struct StoredDocument {
     unchecked_task_count: u32,
     status: LibraryDocumentStatus,
     error_summary: Option<String>,
+    last_refresh_at: Option<u64>,
+    last_refresh_duration_ms: Option<u64>,
+    last_refresh_status: Option<LibraryDocumentStatus>,
+    failure_reason: Option<LibraryRefreshFailureReason>,
 }
 
 pub fn get_library_docs(app_data_dir: impl AsRef<Path>) -> AppResult<Vec<LibraryDocumentItem>> {
@@ -67,6 +71,15 @@ pub fn query_library_docs(
 
     if let Some(status) = query.status.as_deref().and_then(parse_status_filter) {
         items.retain(|item| item.status == status);
+    } else if matches!(query.status.as_deref(), Some("failed")) {
+        items.retain(|item| {
+            matches!(
+                item.status,
+                LibraryDocumentStatus::Missing
+                    | LibraryDocumentStatus::Invalid
+                    | LibraryDocumentStatus::Error
+            ) || item.failure_reason.is_some()
+        });
     }
     if let Some(keyword) = query
         .keyword
@@ -297,6 +310,9 @@ pub fn toggle_library_task(
             document_path,
             LibraryDocumentStatus::Stale,
             Some(format!("节点不存在: {node_id}")),
+            Some(LibraryRefreshFailureReason::Unknown),
+            Some(now),
+            Some(0),
         )?;
         return Err(AppError::Validation(format!("节点不存在: {node_id}")));
     }
@@ -350,6 +366,9 @@ pub fn start_library_refresh(app_data_dir: impl AsRef<Path>) -> AppResult<String
         succeeded: 0,
         failed: 0,
         skipped: 0,
+        current_path: None,
+        updated_at: Some(started_at),
+        cancelled: false,
         errors: Vec::new(),
         started_at,
         finished_at: None,
@@ -395,6 +414,7 @@ fn run_refresh_job(app_data_dir: PathBuf, job_id: String, paths: Vec<String>) ->
             increment_refresh_skipped(&job_id)?;
             continue;
         }
+        set_refresh_current_path(&job_id, Some(path.clone()))?;
         match refresh_document_by_path(&mut conn, &path) {
             Ok(item)
                 if matches!(
@@ -408,10 +428,11 @@ fn run_refresh_job(app_data_dir: PathBuf, job_id: String, paths: Vec<String>) ->
                 increment_refresh_failure(
                     &job_id,
                     item.document_id,
-                    item.path,
-                    item.status,
-                    item.error_summary,
-                )?;
+            item.path,
+            item.status,
+            item.failure_reason,
+            item.error_summary,
+        )?;
             }
             Err(error) => {
                 increment_refresh_task_failure(&job_id, error.user_message())?;
@@ -419,6 +440,7 @@ fn run_refresh_job(app_data_dir: PathBuf, job_id: String, paths: Vec<String>) ->
             }
         }
     }
+    set_refresh_current_path(&job_id, None)?;
     finish_refresh_job(&job_id)?;
     Ok(())
 }
@@ -451,6 +473,8 @@ pub fn cancel_library_refresh(
         LibraryRefreshJobStatus::Queued | LibraryRefreshJobStatus::Running
     ) {
         job.status = LibraryRefreshJobStatus::CancelRequested;
+        job.cancelled = true;
+        job.updated_at = Some(now_millis());
     }
     Ok(job.clone())
 }
@@ -504,7 +528,11 @@ fn migrate_database(conn: &mut Connection) -> AppResult<()> {
           task_count INTEGER NOT NULL DEFAULT 0,
           unchecked_task_count INTEGER NOT NULL DEFAULT 0,
           status TEXT NOT NULL,
-          error_summary TEXT
+          error_summary TEXT,
+          last_refresh_at INTEGER,
+          last_refresh_duration_ms INTEGER,
+          last_refresh_status TEXT,
+          failure_reason TEXT
         );
 
         CREATE TABLE IF NOT EXISTS library_nodes (
@@ -535,17 +563,53 @@ fn migrate_database(conn: &mut Connection) -> AppResult<()> {
         ",
     )
     .map_err(db_error)?;
+    ensure_library_document_diagnostic_columns(&tx)?;
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(db_error)?;
     tx.commit().map_err(db_error)?;
     Ok(())
 }
 
+fn ensure_library_document_diagnostic_columns(tx: &Transaction<'_>) -> AppResult<()> {
+    for (name, definition) in [
+        ("last_refresh_at", "INTEGER"),
+        ("last_refresh_duration_ms", "INTEGER"),
+        ("last_refresh_status", "TEXT"),
+        ("failure_reason", "TEXT"),
+    ] {
+        if !table_has_column(tx, "library_documents", name)? {
+            tx.execute(
+                &format!("ALTER TABLE library_documents ADD COLUMN {name} {definition}"),
+                [],
+            )
+            .map_err(db_error)?;
+        }
+    }
+    Ok(())
+}
+
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> AppResult<bool> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(db_error)?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(db_error)?;
+    for row in rows {
+        if row.map_err(db_error)? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn index_document(conn: &mut Connection, path: &Path) -> AppResult<LibraryDocumentItem> {
+    let refresh_started_at = now_millis();
     let doc = file_service::load_document(path)?;
     let path_string = path.to_string_lossy().to_string();
     let file_mtime = file_mtime(path);
     let indexed_at = now_millis();
+    let duration_ms = indexed_at.saturating_sub(refresh_started_at);
     let indexed_nodes = extract_nodes(&doc);
     let tags = collect_tags(&indexed_nodes);
     let node_count = indexed_nodes.len() as u32;
@@ -565,6 +629,7 @@ fn index_document(conn: &mut Connection, path: &Path) -> AppResult<LibraryDocume
         &path_string,
         indexed_at,
         file_mtime,
+        duration_ms,
         &indexed_nodes,
         node_count,
         task_count,
@@ -585,6 +650,10 @@ fn index_document(conn: &mut Connection, path: &Path) -> AppResult<LibraryDocume
         tags,
         status: LibraryDocumentStatus::Ready,
         error_summary: None,
+        last_refresh_at: Some(indexed_at),
+        last_refresh_duration_ms: Some(duration_ms),
+        last_refresh_status: Some(LibraryDocumentStatus::Ready),
+        failure_reason: None,
     })
 }
 
@@ -594,6 +663,7 @@ fn write_document_index(
     path: &str,
     indexed_at: u64,
     file_mtime: Option<u64>,
+    refresh_duration_ms: u64,
     nodes: &[IndexedNode],
     node_count: u32,
     task_count: u32,
@@ -602,9 +672,10 @@ fn write_document_index(
     tx.execute(
         "INSERT INTO library_documents (
             document_id, path, title, updated_at, indexed_at, file_mtime,
-            node_count, task_count, unchecked_task_count, status, error_summary
+            node_count, task_count, unchecked_task_count, status, error_summary,
+            last_refresh_at, last_refresh_duration_ms, last_refresh_status, failure_reason
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'ready', NULL)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'ready', NULL, ?10, ?11, 'ready', NULL)
          ON CONFLICT(document_id) DO UPDATE SET
             path = excluded.path,
             title = excluded.title,
@@ -615,7 +686,11 @@ fn write_document_index(
             task_count = excluded.task_count,
             unchecked_task_count = excluded.unchecked_task_count,
             status = 'ready',
-            error_summary = NULL",
+            error_summary = NULL,
+            last_refresh_at = excluded.last_refresh_at,
+            last_refresh_duration_ms = excluded.last_refresh_duration_ms,
+            last_refresh_status = 'ready',
+            failure_reason = NULL",
         params![
             doc.id,
             path,
@@ -625,7 +700,9 @@ fn write_document_index(
             file_mtime,
             node_count,
             task_count,
-            unchecked_task_count
+            unchecked_task_count,
+            indexed_at,
+            refresh_duration_ms
         ],
     )
     .map_err(db_error)?;
@@ -700,19 +777,59 @@ fn write_document_index(
 }
 
 fn refresh_document_by_path(conn: &mut Connection, path: &str) -> AppResult<LibraryDocumentItem> {
+    let refresh_started_at = now_millis();
     match index_document(conn, Path::new(path)) {
         Ok(item) => Ok(item),
         Err(error) => {
-            let status = match error {
-                AppError::FileNotFound { .. } => LibraryDocumentStatus::Missing,
-                AppError::JsonParse(_) | AppError::Validation(_) => LibraryDocumentStatus::Invalid,
-                _ => LibraryDocumentStatus::Stale,
-            };
+            let reason = classify_refresh_failure(&error);
+            let status = document_status_for_failure(&reason);
             let summary = error.user_message();
-            mark_document_status(conn, path, status, Some(summary))?;
+            mark_document_status(
+                conn,
+                path,
+                status,
+                Some(summary),
+                Some(reason),
+                Some(refresh_started_at),
+                Some(now_millis().saturating_sub(refresh_started_at)),
+            )?;
             document_by_path(conn, path)?
                 .ok_or_else(|| AppError::Validation(format!("文档库记录不存在: {path}")))
         }
+    }
+}
+
+fn classify_refresh_failure(error: &AppError) -> LibraryRefreshFailureReason {
+    match error {
+        AppError::FileNotFound { .. } => LibraryRefreshFailureReason::MissingFile,
+        AppError::JsonParse(_) => LibraryRefreshFailureReason::InvalidJson,
+        AppError::Validation(message) if message.contains("版本") => {
+            LibraryRefreshFailureReason::UnsupportedVersion
+        }
+        AppError::Validation(_) => LibraryRefreshFailureReason::InvalidJson,
+        AppError::Io { source, .. }
+            if matches!(
+                source.kind(),
+                std::io::ErrorKind::PermissionDenied
+                    | std::io::ErrorKind::AlreadyExists
+                    | std::io::ErrorKind::ExecutableFileBusy
+            ) =>
+        {
+            LibraryRefreshFailureReason::PermissionDenied
+        }
+        AppError::Database(_) => LibraryRefreshFailureReason::IndexWriteFailed,
+        _ => LibraryRefreshFailureReason::Unknown,
+    }
+}
+
+fn document_status_for_failure(reason: &LibraryRefreshFailureReason) -> LibraryDocumentStatus {
+    match reason {
+        LibraryRefreshFailureReason::MissingFile => LibraryDocumentStatus::Missing,
+        LibraryRefreshFailureReason::InvalidJson
+        | LibraryRefreshFailureReason::UnsupportedVersion => LibraryDocumentStatus::Invalid,
+        LibraryRefreshFailureReason::PermissionDenied
+        | LibraryRefreshFailureReason::IndexWriteFailed
+        | LibraryRefreshFailureReason::Unknown => LibraryDocumentStatus::Error,
     }
 }
 
@@ -720,7 +837,8 @@ fn list_documents(conn: &Connection) -> AppResult<Vec<LibraryDocumentItem>> {
     let mut stmt = conn
         .prepare(
             "SELECT document_id, title, path, updated_at, indexed_at, file_mtime,
-                    node_count, task_count, unchecked_task_count, status, error_summary
+                    node_count, task_count, unchecked_task_count, status, error_summary,
+                    last_refresh_at, last_refresh_duration_ms, last_refresh_status, failure_reason
              FROM library_documents
              ORDER BY indexed_at DESC, lower(title)",
         )
@@ -772,7 +890,8 @@ fn document_by_path(conn: &Connection, path: &str) -> AppResult<Option<LibraryDo
     let stored = conn
         .query_row(
             "SELECT document_id, title, path, updated_at, indexed_at, file_mtime,
-                    node_count, task_count, unchecked_task_count, status, error_summary
+                    node_count, task_count, unchecked_task_count, status, error_summary,
+                    last_refresh_at, last_refresh_duration_ms, last_refresh_status, failure_reason
              FROM library_documents
              WHERE path = ?1",
             params![path],
@@ -816,6 +935,10 @@ fn stored_document_to_item(
         unchecked_task_count: stored.unchecked_task_count,
         status,
         error_summary: stored.error_summary,
+        last_refresh_at: stored.last_refresh_at,
+        last_refresh_duration_ms: stored.last_refresh_duration_ms,
+        last_refresh_status: stored.last_refresh_status,
+        failure_reason: stored.failure_reason,
     })
 }
 
@@ -832,6 +955,16 @@ fn read_stored_document(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredDocum
         unchecked_task_count: row.get(8)?,
         status: status_from_db(row.get::<_, String>(9)?.as_str()),
         error_summary: row.get(10)?,
+        last_refresh_at: row.get(11)?,
+        last_refresh_duration_ms: row.get(12)?,
+        last_refresh_status: row
+            .get::<_, Option<String>>(13)?
+            .as_deref()
+            .map(status_from_db),
+        failure_reason: row
+            .get::<_, Option<String>>(14)?
+            .as_deref()
+            .and_then(failure_reason_from_db),
     })
 }
 
@@ -1123,6 +1256,7 @@ fn increment_refresh_success(job_id: &str) -> AppResult<()> {
     update_refresh_job(job_id, |job| {
         job.processed += 1;
         job.succeeded += 1;
+        job.updated_at = Some(now_millis());
     })
 }
 
@@ -1130,6 +1264,15 @@ fn increment_refresh_skipped(job_id: &str) -> AppResult<()> {
     update_refresh_job(job_id, |job| {
         job.processed += 1;
         job.skipped += 1;
+        job.cancelled = true;
+        job.updated_at = Some(now_millis());
+    })
+}
+
+fn set_refresh_current_path(job_id: &str, current_path: Option<String>) -> AppResult<()> {
+    update_refresh_job(job_id, |job| {
+        job.current_path = current_path;
+        job.updated_at = Some(now_millis());
     })
 }
 
@@ -1138,15 +1281,18 @@ fn increment_refresh_failure(
     document_id: String,
     path: String,
     status: LibraryDocumentStatus,
+    reason: Option<LibraryRefreshFailureReason>,
     message: Option<String>,
 ) -> AppResult<()> {
     update_refresh_job(job_id, |job| {
         job.processed += 1;
         job.failed += 1;
+        job.updated_at = Some(now_millis());
         job.errors.push(crate::models::LibraryRefreshErrorItem {
             document_id,
             path,
             status,
+            reason: reason.unwrap_or(LibraryRefreshFailureReason::Unknown),
             message: message.unwrap_or_else(|| "刷新失败".to_string()),
             technical_message: None,
         });
@@ -1157,10 +1303,12 @@ fn increment_refresh_task_failure(job_id: &str, message: String) -> AppResult<()
     update_refresh_job(job_id, |job| {
         job.status = LibraryRefreshJobStatus::Failed;
         job.finished_at = Some(now_millis());
+        job.updated_at = job.finished_at;
         job.errors.push(crate::models::LibraryRefreshErrorItem {
             document_id: String::new(),
             path: String::new(),
             status: LibraryDocumentStatus::Error,
+            reason: LibraryRefreshFailureReason::Unknown,
             message,
             technical_message: None,
         });
@@ -1180,6 +1328,7 @@ fn finish_refresh_job(job_id: &str) -> AppResult<()> {
             LibraryRefreshJobStatus::Completed
         };
         job.finished_at = Some(now_millis());
+        job.updated_at = job.finished_at;
     })
 }
 
@@ -1325,10 +1474,27 @@ fn mark_document_status(
     path: &str,
     status: LibraryDocumentStatus,
     error_summary: Option<String>,
+    failure_reason: Option<LibraryRefreshFailureReason>,
+    last_refresh_at: Option<u64>,
+    last_refresh_duration_ms: Option<u64>,
 ) -> AppResult<()> {
     conn.execute(
-        "UPDATE library_documents SET status = ?1, error_summary = ?2 WHERE path = ?3",
-        params![status_to_db(&status), error_summary, path],
+        "UPDATE library_documents
+         SET status = ?1,
+             error_summary = ?2,
+             failure_reason = ?3,
+             last_refresh_at = ?4,
+             last_refresh_duration_ms = ?5,
+             last_refresh_status = ?1
+         WHERE path = ?6",
+        params![
+            status_to_db(&status),
+            error_summary,
+            failure_reason.as_ref().map(failure_reason_to_db),
+            last_refresh_at,
+            last_refresh_duration_ms,
+            path,
+        ],
     )
     .map_err(db_error)?;
     Ok(())
@@ -1450,6 +1616,29 @@ fn status_from_db(status: &str) -> LibraryDocumentStatus {
         "indexing" => LibraryDocumentStatus::Indexing,
         "error" => LibraryDocumentStatus::Error,
         _ => LibraryDocumentStatus::Ready,
+    }
+}
+
+fn failure_reason_to_db(reason: &LibraryRefreshFailureReason) -> &'static str {
+    match reason {
+        LibraryRefreshFailureReason::MissingFile => "missingFile",
+        LibraryRefreshFailureReason::InvalidJson => "invalidJson",
+        LibraryRefreshFailureReason::UnsupportedVersion => "unsupportedVersion",
+        LibraryRefreshFailureReason::PermissionDenied => "permissionDenied",
+        LibraryRefreshFailureReason::IndexWriteFailed => "indexWriteFailed",
+        LibraryRefreshFailureReason::Unknown => "unknown",
+    }
+}
+
+fn failure_reason_from_db(reason: &str) -> Option<LibraryRefreshFailureReason> {
+    match reason {
+        "missingFile" => Some(LibraryRefreshFailureReason::MissingFile),
+        "invalidJson" => Some(LibraryRefreshFailureReason::InvalidJson),
+        "unsupportedVersion" => Some(LibraryRefreshFailureReason::UnsupportedVersion),
+        "permissionDenied" => Some(LibraryRefreshFailureReason::PermissionDenied),
+        "indexWriteFailed" => Some(LibraryRefreshFailureReason::IndexWriteFailed),
+        "unknown" => Some(LibraryRefreshFailureReason::Unknown),
+        _ => None,
     }
 }
 

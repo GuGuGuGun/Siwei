@@ -13,6 +13,17 @@ pub enum LibraryDocumentStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub enum LibraryRefreshFailureReason {
+    MissingFile,
+    InvalidJson,
+    UnsupportedVersion,
+    PermissionDenied,
+    IndexWriteFailed,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct LibraryPage<T> {
     pub items: Vec<T>,
     pub has_more: bool,
@@ -54,6 +65,14 @@ pub struct LibraryDocumentItem {
     pub status: LibraryDocumentStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_refresh_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_refresh_duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_refresh_status: Option<LibraryDocumentStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<LibraryRefreshFailureReason>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -234,6 +253,7 @@ pub struct LibraryRefreshErrorItem {
     pub document_id: String,
     pub path: String,
     pub status: LibraryDocumentStatus,
+    pub reason: LibraryRefreshFailureReason,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub technical_message: Option<String>,
@@ -249,6 +269,11 @@ pub struct LibraryRefreshStatus {
     pub succeeded: u32,
     pub failed: u32,
     pub skipped: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<u64>,
+    pub cancelled: bool,
     pub errors: Vec<LibraryRefreshErrorItem>,
     pub started_at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]

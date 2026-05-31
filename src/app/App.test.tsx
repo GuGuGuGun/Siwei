@@ -173,4 +173,23 @@ describe('App', () => {
       expect(api.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ focusMode: false }))
     })
   })
+
+  it('suppresses the browser default context menu', async () => {
+    render(<App />)
+
+    await waitFor(() => expect(screen.getByText('Siwei Workspace')).toBeInTheDocument())
+
+    const event = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+    })
+    let wasNotCancelled = true
+    await act(async () => {
+      wasNotCancelled = window.dispatchEvent(event)
+    })
+
+    expect(wasNotCancelled).toBe(false)
+    expect(event.defaultPrevented).toBe(true)
+  })
 })

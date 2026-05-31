@@ -26,6 +26,10 @@ export interface ResolvedDropMove {
   targetIndex: number
 }
 
+export interface RejectedDropMove {
+  reason: string
+}
+
 export interface ResolvedDragTarget {
   targetNodeId: string
   zone: MindMapDropZone
@@ -74,6 +78,13 @@ export function resolveMindMapDragTarget(
 }
 
 export function resolveMindMapDropMove(input: ResolveDropMoveInput): ResolvedDropMove | null {
+  const result = resolveMindMapDropMoveResult(input)
+  return 'reason' in result ? null : result
+}
+
+export function resolveMindMapDropMoveResult(
+  input: ResolveDropMoveInput,
+): ResolvedDropMove | RejectedDropMove {
   const {
     sourceNodeId,
     targetNodeId,
@@ -84,9 +95,10 @@ export function resolveMindMapDropMove(input: ResolveDropMoveInput): ResolvedDro
     rootNodeId,
     descendantNodeIds,
   } = input
-  if (!sourceNodeId || sourceNodeId === targetNodeId) return null
-  if (rootNodeId && sourceNodeId === rootNodeId) return null
-  if (descendantNodeIds?.has(targetNodeId)) return null
+  if (!sourceNodeId) return { reason: '无法移动到该位置' }
+  if (sourceNodeId === targetNodeId) return { reason: '无法移动到自身' }
+  if (rootNodeId && sourceNodeId === rootNodeId) return { reason: '无法移动根节点' }
+  if (descendantNodeIds?.has(targetNodeId)) return { reason: '无法移动到自己的子节点下' }
 
   if (zone === 'child') {
     return {
@@ -95,7 +107,7 @@ export function resolveMindMapDropMove(input: ResolveDropMoveInput): ResolvedDro
     }
   }
 
-  if (!targetParentId || targetIndex === undefined) return null
+  if (!targetParentId || targetIndex === undefined) return { reason: '无法移动到该位置' }
 
   return {
     parentNodeId: targetParentId,

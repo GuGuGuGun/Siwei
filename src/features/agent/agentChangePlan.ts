@@ -5,6 +5,7 @@ import type {
   AgentDocumentContext,
   AgentDocumentNodeContext,
   AgentInsertedNode,
+  AgentNodePreview,
   AgentOperation,
   AgentPlanResult,
 } from './agentTypes'
@@ -49,7 +50,7 @@ export function createAgentDocumentPreview(plan: AgentChangePlan | null): AgentD
         })
         break
       case 'deleteNode':
-        nodePreviews.set(operation.nodeId, { kind: 'delete' })
+        nodePreviews.set(operation.nodeId, createMissingDeletePreview(operation))
         break
       case 'moveNode':
         nodePreviews.set(operation.nodeId, {
@@ -82,6 +83,31 @@ export function createAgentDocumentPreview(plan: AgentChangePlan | null): AgentD
   return { nodePreviews, insertionsByParentId }
 }
 
+export function createAgentDocumentPreviewForDocument(
+  doc: OutlineDocument,
+  plan: AgentChangePlan | null,
+): AgentDocumentPreview {
+  const preview = createAgentDocumentPreview(plan)
+  if (!plan) return preview
+
+  for (const operation of plan.operations) {
+    if (operation.type !== 'deleteNode') continue
+    const target = findNode(doc.root, operation.nodeId)
+    if (!target) continue
+    preview.nodePreviews.set(operation.nodeId, {
+      kind: 'delete',
+      title: target.node.text,
+      descendantCount: countDescendants(target.node),
+      tagCount: collectSubtreeTags(target.node).size,
+      taskCount: countSubtreeTasks(target.node),
+      reason: normalizePreviewReason(operation.reason),
+      riskLevel: 'high',
+    })
+  }
+
+  return preview
+}
+
 export function validateAgentChangePlan(
   doc: OutlineDocument,
   plan: AgentChangePlan,
@@ -107,6 +133,9 @@ export function applyAgentChangePlanToDocument(
     return { ok: false, error: '修改计划没有包含任何操作' }
   }
 
+  const riskValidation = validatePlanRiskSemantics(plan)
+  if (!riskValidation.ok) return riskValidation
+
   let nextRoot = cloneNode(doc.root)
   const now = Date.now()
 
@@ -128,6 +157,38 @@ export function applyAgentChangePlanToDocument(
       root: nextRoot,
     },
   }
+}
+
+function validatePlanRiskSemantics(plan: AgentChangePlan): { ok: true } | { ok: false; error: string } {
+  const deleteOperations = plan.operations.filter((operation) => operation.type === 'deleteNode')
+  if (deleteOperations.length === 0) return { ok: true }
+  if (plan.riskLevel !== 'high') return { ok: false, error: '删除节点必须标记为高风险' }
+
+  const hasReference = plan.references.length > 0
+  const hasDeleteReason = deleteOperations.some((operation) => operation.reason?.trim())
+  const hasPlanRationale = plan.rationale.trim().length > 0
+  if (!hasReference && !hasDeleteReason && !hasPlanRationale) {
+    return { ok: false, error: '高风险删除缺少引用或理由' }
+  }
+
+  return { ok: true }
+}
+
+function createMissingDeletePreview(operation: Extract<AgentOperation, { type: 'deleteNode' }>): AgentNodePreview {
+  return {
+    kind: 'delete',
+    title: operation.nodeId,
+    descendantCount: 0,
+    tagCount: 0,
+    taskCount: 0,
+    reason: normalizePreviewReason(operation.reason),
+    riskLevel: 'high',
+  }
+}
+
+function normalizePreviewReason(reason: string | undefined): string {
+  const normalized = reason?.trim()
+  return normalized || '未提供删除理由'
 }
 
 function toAgentNodeContext(node: OutlineNode): AgentDocumentNodeContext {
@@ -298,6 +359,23 @@ function findNode(root: OutlineNode, nodeId: string, path: number[] = []): Locat
   }
 
   return null
+}
+
+function countDescendants(node: OutlineNode): number {
+  return node.children.reduce((count, child) => count + 1 + countDescendants(child), 0)
+}
+
+function countSubtreeTasks(node: OutlineNode): number {
+  const current = node.checked === undefined ? 0 : 1
+  return current + node.children.reduce((count, child) => count + countSubtreeTasks(child), 0)
+}
+
+function collectSubtreeTags(node: OutlineNode): Set<string> {
+  const tags = new Set(node.tags ?? [])
+  node.children.forEach((child) => {
+    collectSubtreeTags(child).forEach((tag) => tags.add(tag))
+  })
+  return tags
 }
 
 function cloneNode(node: OutlineNode): OutlineNode {

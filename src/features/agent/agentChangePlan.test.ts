@@ -5,6 +5,7 @@ import {
   applyAgentChangePlanToDocument,
   createDocumentSnapshotKey,
   createAgentDocumentPreview,
+  createAgentDocumentPreviewForDocument,
   validateAgentChangePlan,
 } from './agentChangePlan'
 import type { AgentChangePlan, AgentOperation } from './agentTypes'
@@ -47,6 +48,7 @@ describe('agentChangePlan', () => {
           nodeId: 'node-1-1',
         },
       ],
+      { riskLevel: 'high', references: [currentDocumentReference(doc.id)] },
     )
 
     const result = applyAgentChangePlanToDocument(doc, plan)
@@ -94,7 +96,8 @@ describe('agentChangePlan', () => {
     expect(validateAgentChangePlan(doc, createStrictPlan(
       doc.id,
       createDocumentSnapshotKey(doc),
-      [{ type: 'deleteNode', nodeId: 'root' }],
+      [{ type: 'deleteNode', nodeId: 'root', reason: '测试禁止删除根节点' }],
+      { riskLevel: 'high', references: [currentDocumentReference(doc.id)] },
     ))).toEqual({
       ok: false,
       error: '不能删除根节点',
@@ -156,7 +159,7 @@ describe('agentChangePlan', () => {
 
   it('creates node-level previews without exposing the raw change plan to UI', () => {
     const doc = createDocument()
-    const preview = createAgentDocumentPreview(createStrictPlan(
+    const preview = createAgentDocumentPreviewForDocument(doc, createStrictPlan(
       doc.id,
       createDocumentSnapshotKey(doc),
       [
@@ -172,10 +175,7 @@ describe('agentChangePlan', () => {
           index: 1,
           node: { id: 'agent-node', text: '新增节点' },
         },
-        {
-          type: 'deleteNode',
-          nodeId: 'node-1-1',
-        },
+        { type: 'deleteNode', nodeId: 'node-1-1' },
         {
           type: 'moveNode',
           nodeId: 'node-1',
@@ -183,6 +183,7 @@ describe('agentChangePlan', () => {
           index: 1,
         },
       ],
+      { riskLevel: 'high', references: [currentDocumentReference(doc.id)] },
     ))
 
     expect(preview.nodePreviews.get('node-2')).toMatchObject({
@@ -190,7 +191,15 @@ describe('agentChangePlan', () => {
       text: '助理改写',
       checked: true,
     })
-    expect(preview.nodePreviews.get('node-1-1')).toEqual({ kind: 'delete' })
+    expect(preview.nodePreviews.get('node-1-1')).toEqual({
+      kind: 'delete',
+      title: '第一子节点',
+      descendantCount: 0,
+      tagCount: 0,
+      taskCount: 0,
+      reason: '未提供删除理由',
+      riskLevel: 'high',
+    })
     expect(preview.nodePreviews.get('node-1')).toMatchObject({
       kind: 'move',
       targetParentNodeId: 'root',
@@ -203,12 +212,78 @@ describe('agentChangePlan', () => {
       },
     ])
   })
+
+  it('requires delete operations to carry high-risk plan semantics', () => {
+    const doc = createDocument()
+    const snapshotKey = createDocumentSnapshotKey(doc)
+
+    expect(validateAgentChangePlan(doc, createStrictPlan(
+      doc.id,
+      snapshotKey,
+      [{ type: 'deleteNode', nodeId: 'node-1', reason: '清理过期章节' }],
+      { riskLevel: 'medium' },
+    ))).toEqual({
+      ok: false,
+      error: '删除节点必须标记为高风险',
+    })
+
+    expect(validateAgentChangePlan(doc, createStrictPlan(
+      doc.id,
+      snapshotKey,
+      [{ type: 'deleteNode', nodeId: 'node-1' }],
+      { riskLevel: 'high', references: [], rationale: '' },
+    ))).toEqual({
+      ok: false,
+      error: '高风险删除缺少引用或理由',
+    })
+  })
+
+  it('summarizes delete risk details for descendant tasks and tags', () => {
+    const doc = {
+      ...createDocument(),
+      root: {
+        ...createDocument().root,
+        children: [
+          {
+            ...createDocument().root.children[0],
+            tags: ['项目'],
+            checked: false,
+            children: [
+              {
+                ...createDocument().root.children[0].children[0],
+                tags: ['项目', '风险'],
+                checked: true,
+              },
+            ],
+          },
+        ],
+      },
+    }
+
+    const preview = createAgentDocumentPreviewForDocument(doc, createStrictPlan(
+      doc.id,
+      createDocumentSnapshotKey(doc),
+      [{ type: 'deleteNode', nodeId: 'node-1', reason: '删除重复分支' }],
+      { riskLevel: 'high', references: [currentDocumentReference(doc.id)] },
+    ))
+
+    expect(preview.nodePreviews.get('node-1')).toEqual({
+      kind: 'delete',
+      title: '第一节点',
+      descendantCount: 1,
+      tagCount: 2,
+      taskCount: 2,
+      reason: '删除重复分支',
+      riskLevel: 'high',
+    })
+  })
 })
 
 function createStrictPlan(
   documentId: string,
   snapshotKey: string,
   operations: AgentOperation[],
+  overrides: Partial<AgentChangePlan> = {},
 ): AgentChangePlan {
   return {
     schemaVersion: 1,
@@ -220,5 +295,16 @@ function createStrictPlan(
     riskLevel: 'low',
     references: [],
     operations,
+    ...overrides,
+  }
+}
+
+function currentDocumentReference(documentId: string): AgentChangePlan['references'][number] {
+  return {
+    sourceType: 'currentDocument',
+    documentId,
+    nodeId: 'node-1',
+    path: ['第一节点'],
+    snippet: '第一节点',
   }
 }

@@ -17,7 +17,7 @@ import { useDocumentStore } from '../document/documentStore'
 
 export type LibraryView = 'docs' | 'search' | 'tags' | 'tasks'
 export type LibraryTaskFilter = 'all' | 'unchecked' | 'checked'
-export type LibraryStatusFilter = 'all' | LibraryDocumentItem['status']
+export type LibraryStatusFilter = 'all' | 'failed' | LibraryDocumentItem['status']
 export type LibraryMatchedFieldFilter = 'all' | NonNullable<LibrarySearchResult['matchedFields']>[number]
 
 const PAGE_SIZE = 50

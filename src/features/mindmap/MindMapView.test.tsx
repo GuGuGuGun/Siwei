@@ -269,6 +269,7 @@ describe('MindMapView', () => {
 
     expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.['node-2']).toEqual({ x: 333, y: 222 })
     expect(useDocumentStore.getState().isDirty).toBe(true)
+    expect(screen.getByText('布局已更新')).toBeInTheDocument()
   })
 
   it('switches to reorganize mode and keeps the ReactFlow drag channel enabled', async () => {
@@ -408,6 +409,7 @@ describe('MindMapView', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '聚焦此分支' }))
 
     await waitFor(() => expect(screen.queryByTestId('flow-node-root')).not.toBeInTheDocument())
+    expect(screen.getByText('已聚焦当前分支：第一节点')).toBeInTheDocument()
     expect(screen.getByTestId('flow-node-node-1')).toBeInTheDocument()
     expect(screen.queryByTestId('flow-node-node-2')).not.toBeInTheDocument()
 
@@ -456,6 +458,28 @@ describe('MindMapView', () => {
     await waitFor(() => expect(screen.getByText('1/1')).toBeInTheDocument())
     expect(screen.getByTestId('mindmap-node-node-2')).toHaveClass('ring-4')
     expect(useDocumentStore.getState().selectedNodeId).toBe('node-2')
+  })
+
+  it('confirms before auto layout overwrites a manual layout', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    useDocumentStore.setState((state) => ({
+      currentDoc: state.currentDoc
+        ? {
+          ...state.currentDoc,
+          mindMapLayout: {
+            root: { x: 0, y: 0 },
+            'node-1': { x: 10, y: 20 },
+          },
+        }
+        : state.currentDoc,
+    }))
+    render(<MindMapView />)
+
+    fireEvent.click(screen.getByRole('button', { name: '自动整理' }))
+
+    expect(confirmSpy).toHaveBeenCalledWith('自动布局会覆盖当前手动布局，是否继续？')
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.['node-1']).toEqual({ x: 10, y: 20 })
+    confirmSpy.mockRestore()
   })
 
   it('keeps mind map export out of the local canvas toolbar', () => {

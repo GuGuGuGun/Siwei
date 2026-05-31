@@ -1,10 +1,12 @@
 import React from 'react'
-import { Bot, Check, FileSearch, Loader2, Send, Square, X } from 'lucide-react'
+import { AlertTriangle, Bot, Check, FileSearch, Loader2, Send, Square, X } from 'lucide-react'
 
+import { Dialog } from '../../components/common/Dialog'
 import { toast } from '../../components/common/Toast'
 import { useDocumentStore } from '../document/documentStore'
 import { useAgentStore } from './agentStore'
-import type { AgentOperation } from './agentTypes'
+import { createAgentDocumentPreviewForDocument } from './agentChangePlan'
+import type { AgentDeleteNodePreview, AgentOperation } from './agentTypes'
 
 export const AgentPanel: React.FC = () => {
   const currentDoc = useDocumentStore((state) => state.currentDoc)
@@ -19,6 +21,19 @@ export const AgentPanel: React.FC = () => {
   const applyPendingPlan = useAgentStore((state) => state.applyPendingPlan)
   const attachEventListeners = useAgentStore((state) => state.attachEventListeners)
   const [message, setMessage] = React.useState('')
+  const [confirmingDeletes, setConfirmingDeletes] = React.useState<AgentDeleteNodePreview[] | null>(null)
+
+  const planPreview = React.useMemo(() => (
+    currentDoc ? createAgentDocumentPreviewForDocument(currentDoc, pendingPlan) : null
+  ), [currentDoc, pendingPlan])
+
+  const deletePreviews = React.useMemo(() => {
+    if (!pendingPlan || !planPreview) return []
+    return pendingPlan.operations
+      .filter((operation) => operation.type === 'deleteNode')
+      .map((operation) => planPreview.nodePreviews.get(operation.nodeId))
+      .filter((preview): preview is AgentDeleteNodePreview => preview?.kind === 'delete')
+  }, [pendingPlan, planPreview])
 
   React.useEffect(() => {
     void attachEventListeners()
@@ -34,9 +49,15 @@ export const AgentPanel: React.FC = () => {
   }
 
   const handleApplyPlan = () => {
+    if (deletePreviews.length > 0 && !confirmingDeletes) {
+      setConfirmingDeletes(deletePreviews)
+      return
+    }
+
     const result = applyPendingPlan()
     if (result.ok) {
       toast.success(isInsertOnlyPlan ? '已确认插入' : '助理修改已应用')
+      setConfirmingDeletes(null)
     } else {
       toast.error(result.error)
     }
@@ -132,6 +153,20 @@ export const AgentPanel: React.FC = () => {
               </div>
             </div>
 
+            {deletePreviews.length > 0 && (
+              <div className="mt-3 rounded-md border border-rose-100 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700">
+                <div className="mb-1 flex items-center gap-1.5 font-medium">
+                  <AlertTriangle size={13} />
+                  高风险删除
+                </div>
+                {deletePreviews.map((preview) => (
+                  <div key={preview.title}>
+                    {preview.title}：删除 {preview.descendantCount} 个子节点，涉及 {preview.taskCount} 个任务、{preview.tagCount} 个标签
+                  </div>
+                ))}
+              </div>
+            )}
+
             {pendingPlan.references.length > 0 && (
               <div className="mt-3 border-t border-zinc-100 pt-3">
                 <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-zinc-500">
@@ -218,6 +253,41 @@ export const AgentPanel: React.FC = () => {
           )}
         </div>
       </footer>
+
+      <Dialog
+        isOpen={Boolean(confirmingDeletes)}
+        onClose={() => setConfirmingDeletes(null)}
+        title="确认删除节点"
+      >
+        <div className="space-y-3 text-sm text-zinc-600">
+          <p>该操作会删除所选节点及其子节点，应用后可通过撤销恢复。</p>
+          <div className="space-y-2">
+            {(confirmingDeletes ?? []).map((preview) => (
+              <div key={preview.title} className="rounded-md border border-rose-100 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700">
+                <div className="font-medium text-rose-800">{preview.title}</div>
+                <div>子节点：{preview.descendantCount}；任务：{preview.taskCount}；标签：{preview.tagCount}</div>
+                <div>理由：{preview.reason}</div>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setConfirmingDeletes(null)}
+              className="h-8 rounded-md border border-zinc-200 px-3 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={handleApplyPlan}
+              className="h-8 rounded-md bg-rose-600 px-3 text-xs font-medium text-white hover:bg-rose-500"
+            >
+              确认删除
+            </button>
+          </div>
+        </div>
+      </Dialog>
     </aside>
   )
 }

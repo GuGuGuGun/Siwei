@@ -6,6 +6,14 @@ export type LibraryDocumentStatus =
   | 'indexing'
   | 'error'
 
+export type LibraryRefreshFailureReason =
+  | 'missingFile'
+  | 'invalidJson'
+  | 'unsupportedVersion'
+  | 'permissionDenied'
+  | 'indexWriteFailed'
+  | 'unknown'
+
 export type LibrarySortBy = 'updatedAt' | 'title' | 'taskCount' | 'tagCount' | 'status'
 export type LibrarySortDirection = 'asc' | 'desc'
 
@@ -22,6 +30,10 @@ export interface LibraryDocumentItem {
   tags: string[]
   status: LibraryDocumentStatus
   errorSummary?: string
+  lastRefreshAt?: number
+  lastRefreshDurationMs?: number
+  lastRefreshStatus?: LibraryDocumentStatus
+  failureReason?: LibraryRefreshFailureReason
 }
 
 export interface LibraryPage<T> {
@@ -35,7 +47,7 @@ export interface LibraryDocumentQuery {
   offset?: number
   sortBy?: LibrarySortBy
   sortDirection?: LibrarySortDirection
-  status?: LibraryDocumentStatus | 'all'
+  status?: LibraryDocumentStatus | 'failed' | 'all'
   keyword?: string
 }
 
@@ -84,7 +96,7 @@ export interface LibrarySearchQuery {
   query: string
   limit?: number
   offset?: number
-  documentStatus?: LibraryDocumentStatus | 'all'
+  documentStatus?: LibraryDocumentStatus | 'failed' | 'all'
   matchedField?: LibraryMatchedField | 'all'
 }
 
@@ -135,6 +147,7 @@ export interface LibraryRefreshErrorItem {
   documentId: string
   path: string
   status: Exclude<LibraryDocumentStatus, 'ready' | 'indexing'>
+  reason: LibraryRefreshFailureReason
   message: string
   technicalMessage?: string
 }
@@ -147,6 +160,9 @@ export interface LibraryRefreshStatus {
   succeeded: number
   failed: number
   skipped: number
+  currentPath?: string
+  updatedAt?: number
+  cancelled: boolean
   errors: LibraryRefreshErrorItem[]
   startedAt: number
   finishedAt?: number

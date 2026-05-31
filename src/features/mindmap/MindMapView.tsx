@@ -41,6 +41,7 @@ import {
   MindMapDropZone,
   resolveMindMapDragTarget,
   resolveMindMapDropMove,
+  resolveMindMapDropMoveResult,
 } from './mindMapReorder'
 import type { AgentInsertionPreview } from '../agent/agentTypes'
 
@@ -88,6 +89,7 @@ export const MindMapView: React.FC = () => {
   const [editing, setEditing] = React.useState<MindMapEditingState | null>(null)
   const [mode, setMode] = React.useState<MindMapMode>('layout')
   const [exportClean, setExportClean] = React.useState(false)
+  const [feedback, setFeedback] = React.useState<string | null>(null)
   const flowInstanceRef = React.useRef<ReactFlowInstance | null>(null)
   const flowWrapperRef = React.useRef<HTMLDivElement | null>(null)
   const dragStartPositionsRef = React.useRef<Map<string, { x: number; y: number }> | null>(null)
@@ -145,6 +147,17 @@ export const MindMapView: React.FC = () => {
     selectedNodeId,
     selectNode,
   })
+
+  const focusedNodeTitle = React.useMemo(() => {
+    if (!currentDoc || !validFocusRootNodeId) return null
+    return findNodeById(currentDoc.root, validFocusRootNodeId)?.text ?? null
+  }, [currentDoc, validFocusRootNodeId])
+
+  React.useEffect(() => {
+    if (focusedNodeTitle) {
+      setFeedback(`已聚焦当前分支：${focusedNodeTitle}`)
+    }
+  }, [focusedNodeTitle])
 
   const visibleNodeIds = React.useMemo(() => {
     if (!currentDoc) return new Set<string>()
@@ -368,7 +381,7 @@ export const MindMapView: React.FC = () => {
     }
     const dragTarget = resolveDraggedNodeTarget(draggedNode)
     const targetNode = dragTarget && currentDoc ? findNodeById(currentDoc.root, dragTarget.targetNodeId) : null
-    const resolvedMove = dragTarget && currentDoc
+      const resolvedMove = dragTarget && currentDoc
       ? resolveMindMapDropMove({
         sourceNodeId: draggedNode.id,
         targetNodeId: dragTarget.targetNodeId,
@@ -384,6 +397,19 @@ export const MindMapView: React.FC = () => {
       dragTarget ? { nodeId: dragTarget.targetNodeId, zone: dragTarget.zone, invalid: !resolvedMove } : null,
       draggedNode,
     )
+    if (dragTarget && currentDoc && !resolvedMove) {
+      const result = resolveMindMapDropMoveResult({
+        sourceNodeId: draggedNode.id,
+        targetNodeId: dragTarget.targetNodeId,
+        zone: dragTarget.zone,
+        targetParentId: parentByNodeId.get(dragTarget.targetNodeId),
+        targetIndex: childIndexByNodeId.get(dragTarget.targetNodeId),
+        targetChildCount: targetNode?.children.length ?? 0,
+        rootNodeId: currentDoc.root.id,
+        descendantNodeIds: getNodeDescendantIds(draggedNode.id),
+      })
+      if ('reason' in result) setFeedback(result.reason)
+    }
   }, [
     childIndexByNodeId,
     currentDoc,
@@ -417,6 +443,8 @@ export const MindMapView: React.FC = () => {
       if (!resolvedMove) return
 
       moveNodeToParent(draggedNode.id, resolvedMove.parentNodeId, resolvedMove.targetIndex)
+      const parentTitle = findNodeById(currentDoc.root, resolvedMove.parentNodeId)?.text ?? '目标节点'
+      setFeedback(`已移动到「${parentTitle}」`)
       return
     }
 
@@ -441,6 +469,7 @@ export const MindMapView: React.FC = () => {
     }, {})
 
     commitMindMapLayout(layout)
+    setFeedback('布局已更新')
   }, [
     childIndexByNodeId,
     commitMindMapLayout,
@@ -456,6 +485,9 @@ export const MindMapView: React.FC = () => {
 
   const handleAutoLayout = React.useCallback(() => {
     if (!currentDoc) return
+    if (currentDoc.mindMapLayout && !window.confirm('自动布局会覆盖当前手动布局，是否继续？')) {
+      return
+    }
     const rawGraph = outlineToGraph(graphRootNode ?? currentDoc.root, collapsedNodeIds, visibleNodeIds)
     const layouted = layoutGraph(rawGraph, { preserveSavedPositions: false })
     const nextLayout = {
@@ -466,6 +498,7 @@ export const MindMapView: React.FC = () => {
       }, {}),
     }
     commitMindMapLayout(nextLayout)
+    setFeedback('布局已更新')
   }, [collapsedNodeIds, commitMindMapLayout, currentDoc, graphRootNode, visibleNodeIds])
 
   React.useEffect(() => {
@@ -610,6 +643,11 @@ export const MindMapView: React.FC = () => {
           onToggleSearch={() => setSearchOpen((open) => !open)}
           onResetFocus={handleResetFocus}
         />
+      )}
+      {feedback && !exportClean && (
+        <div className="absolute left-4 top-[4.75rem] z-10 max-w-[calc(100%-2rem)] rounded-md border border-amber-900/10 bg-[#FAF8F4]/95 px-3 py-2 text-xs font-medium text-zinc-600 shadow-fabric">
+          {feedback}
+        </div>
       )}
       {searchOpen && !exportClean && (
         <MindMapSearchBar

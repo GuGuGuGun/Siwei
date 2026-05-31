@@ -343,6 +343,7 @@ function normalizeOperation(value: unknown): AgentOperation | null {
     return {
       type: 'deleteNode',
       nodeId: value.nodeId,
+      reason: typeof value.reason === 'string' ? value.reason : undefined,
     }
   }
 

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { getMindMapDropZone, resolveMindMapDragTarget, resolveMindMapDropMove } from './mindMapReorder'
+import {
+  getMindMapDropZone,
+  resolveMindMapDragTarget,
+  resolveMindMapDropMove,
+  resolveMindMapDropMoveResult,
+} from './mindMapReorder'
 
 describe('mindMapReorder', () => {
   it('maps node vertical thirds into before child and after drop zones', () => {
@@ -97,5 +102,28 @@ describe('mindMapReorder', () => {
       rootNodeId: 'root',
       descendantNodeIds: new Set(['node-1-1']),
     })).toBeNull()
+  })
+
+  it('explains invalid drop reasons for user-facing feedback', () => {
+    expect(resolveMindMapDropMoveResult({
+      sourceNodeId: 'root',
+      targetNodeId: 'node-1',
+      zone: 'child',
+      targetParentId: 'root',
+      targetIndex: 0,
+      targetChildCount: 0,
+      rootNodeId: 'root',
+    })).toEqual({ reason: '无法移动根节点' })
+
+    expect(resolveMindMapDropMoveResult({
+      sourceNodeId: 'node-1',
+      targetNodeId: 'node-1-1',
+      zone: 'child',
+      targetParentId: 'node-1',
+      targetIndex: 0,
+      targetChildCount: 0,
+      rootNodeId: 'root',
+      descendantNodeIds: new Set(['node-1-1']),
+    })).toEqual({ reason: '无法移动到自己的子节点下' })
   })
 })

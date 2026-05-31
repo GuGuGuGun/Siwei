@@ -97,6 +97,7 @@ export interface AgentInsertedNode {
 export interface AgentDeleteNodeOperation {
   type: 'deleteNode'
   nodeId: string
+  reason?: string
 }
 
 export interface AgentMoveNodeOperation {
@@ -121,6 +122,12 @@ export interface AgentUpdateNodePreview {
 
 export interface AgentDeleteNodePreview {
   kind: 'delete'
+  title: string
+  descendantCount: number
+  tagCount: number
+  taskCount: number
+  reason: string
+  riskLevel: 'high'
 }
 
 export interface AgentMoveNodePreview {

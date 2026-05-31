@@ -6,6 +6,7 @@ import {
   Database,
   FilePlus2,
   FolderOpen,
+  FolderSearch,
   ListTodo,
   RefreshCw,
   Search,
@@ -231,6 +232,9 @@ export const LibraryWorkspace: React.FC = () => {
             onLoadMore={() => void loadMoreDocs()}
             onOpen={(doc) => void openIndexedNode(doc.path)}
             onRefresh={(doc) => void refreshDoc(doc.path)}
+            onOpenLocation={() => {
+              toast.info('当前版本暂不支持打开文件位置，可先打开文档或复制路径定位。')
+            }}
             onRemove={(doc) => {
               void removeDoc(doc.path).then(() => toast.info('已移出文档库'))
             }}
@@ -303,8 +307,12 @@ export const LibraryWorkspace: React.FC = () => {
       </main>
       {refreshStatus && (
         <footer className="flex items-center justify-between gap-3 border-t border-zinc-200 bg-white px-5 py-2 text-xs text-zinc-500">
-          <span>
-            刷新进度：{refreshStatus.processed}/{refreshStatus.total}，成功 {refreshStatus.succeeded}，失败 {refreshStatus.failed}，跳过 {refreshStatus.skipped}
+          <span className="min-w-0 truncate">
+            {refreshStatus.cancelled
+              ? '已取消刷新，已完成的结果已保留'
+              : '正在刷新文档库'}
+            ：{refreshStatus.processed}/{refreshStatus.total}，成功 {refreshStatus.succeeded}，失败 {refreshStatus.failed}，跳过 {refreshStatus.skipped}
+            {refreshStatus.currentPath ? `，当前 ${refreshStatus.currentPath}` : ''}
           </span>
           {!isRefreshFinished(refreshStatus.status) && (
             <button
@@ -341,21 +349,23 @@ function DocumentList({
   onLoadMore,
   onOpen,
   onRefresh,
+  onOpenLocation,
   onRemove,
   onRemoveMissing,
 }: {
   docs: LibraryDocumentItem[]
   hasMore: boolean
-  statusFilter: LibraryDocumentItem['status'] | 'all'
+  statusFilter: LibraryDocumentItem['status'] | 'failed' | 'all'
   keyword: string
   sortBy: 'updatedAt' | 'title' | 'taskCount' | 'tagCount' | 'status'
-  onStatusFilterChange: (status: LibraryDocumentItem['status'] | 'all') => void
+  onStatusFilterChange: (status: LibraryDocumentItem['status'] | 'failed' | 'all') => void
   onKeywordChange: (keyword: string) => void
   onSortByChange: (sortBy: 'updatedAt' | 'title' | 'taskCount' | 'tagCount' | 'status') => void
   onReload: () => void
   onLoadMore: () => void
   onOpen: (doc: LibraryDocumentItem) => void
   onRefresh: (doc: LibraryDocumentItem) => void
+  onOpenLocation: (doc: LibraryDocumentItem) => void
   onRemove: (doc: LibraryDocumentItem) => void
   onRemoveMissing: () => void
 }) {
@@ -369,8 +379,9 @@ function DocumentList({
           className="h-8 w-64 rounded-md border border-zinc-200 bg-white px-2.5 text-xs outline-none focus:border-zinc-400"
           placeholder="按标题或路径过滤"
         />
-        <select value={statusFilter} onChange={(event) => { onStatusFilterChange(event.target.value as LibraryDocumentItem['status'] | 'all'); onReload() }} className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-xs">
+        <select value={statusFilter} onChange={(event) => { onStatusFilterChange(event.target.value as LibraryDocumentItem['status'] | 'failed' | 'all'); onReload() }} className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-xs">
           <option value="all">全部状态</option>
+          <option value="failed">仅查看失败项</option>
           <option value="ready">已同步</option>
           <option value="stale">需刷新</option>
           <option value="missing">文件未找到</option>
@@ -402,12 +413,19 @@ function DocumentList({
                 <StatusPill status={doc.status} />
               </div>
               <div className="mt-1 truncate text-xs text-zinc-400">{doc.path}</div>
-              {doc.errorSummary && <div className="mt-2 text-xs text-rose-600">{doc.errorSummary}</div>}
+              {(doc.errorSummary || doc.failureReason) && (
+                <div className="mt-2 text-xs text-rose-600">
+                  {doc.failureReason ? `${failureReasonLabel(doc.failureReason)}：` : ''}
+                  {doc.errorSummary ?? '刷新失败'}
+                </div>
+              )}
               <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-zinc-500">
                 <span>{doc.nodeCount} 节点</span>
                 <span>{doc.taskCount} 任务</span>
                 <span>{doc.uncheckedTaskCount} 未完成</span>
                 <span>{doc.tags.length} 标签</span>
+                {doc.lastRefreshAt && <span>最近刷新 {formatTimestamp(doc.lastRefreshAt)}</span>}
+                {doc.lastRefreshDurationMs !== undefined && <span>耗时 {doc.lastRefreshDurationMs}ms</span>}
               </div>
             </button>
             <div className="flex shrink-0 items-center gap-1">
@@ -418,6 +436,14 @@ function DocumentList({
                 title="刷新索引"
               >
                 <RefreshCw size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenLocation(doc)}
+                className="rounded-md p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-800"
+                title="打开文件位置"
+              >
+                <FolderSearch size={14} />
               </button>
               <button
                 type="button"
@@ -452,10 +478,10 @@ function SearchView({
   query: string
   results: LibrarySearchResult[]
   hasMore: boolean
-  statusFilter: LibraryDocumentItem['status'] | 'all'
+  statusFilter: LibraryDocumentItem['status'] | 'failed' | 'all'
   fieldFilter: NonNullable<LibrarySearchResult['matchedFields']>[number] | 'all'
   onQueryChange: (query: string) => void
-  onStatusFilterChange: (status: LibraryDocumentItem['status'] | 'all') => void
+  onStatusFilterChange: (status: LibraryDocumentItem['status'] | 'failed' | 'all') => void
   onFieldFilterChange: (field: NonNullable<LibrarySearchResult['matchedFields']>[number] | 'all') => void
   onReload: () => void
   onLoadMore: () => void
@@ -473,8 +499,9 @@ function SearchView({
         />
       </div>
       <div className="flex flex-wrap gap-2">
-        <select value={statusFilter} onChange={(event) => { onStatusFilterChange(event.target.value as LibraryDocumentItem['status'] | 'all'); onReload() }} className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-xs">
+        <select value={statusFilter} onChange={(event) => { onStatusFilterChange(event.target.value as LibraryDocumentItem['status'] | 'failed' | 'all'); onReload() }} className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-xs">
           <option value="all">全部状态</option>
+          <option value="failed">仅查看失败项</option>
           <option value="ready">已同步</option>
           <option value="stale">需刷新</option>
           <option value="missing">文件未找到</option>
@@ -641,6 +668,26 @@ function sourceLabel(source: LibrarySearchResult['matchSources'][number]) {
   if (source === 'note') return '备注'
   if (source === 'tag') return '标签'
   return '正文'
+}
+
+function failureReasonLabel(reason: NonNullable<LibraryDocumentItem['failureReason']>) {
+  return {
+    missingFile: '文件不存在',
+    invalidJson: '文档格式无法解析',
+    unsupportedVersion: '文档版本暂不支持',
+    permissionDenied: '没有权限读取文件',
+    indexWriteFailed: '索引写入失败',
+    unknown: '刷新失败',
+  }[reason]
+}
+
+function formatTimestamp(value: number) {
+  return new Date(value).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function HighlightedText({ text, ranges }: { text: string; ranges: Array<{ start: number; end: number }> }) {

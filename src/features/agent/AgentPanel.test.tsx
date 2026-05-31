@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createDocument } from '../../test/fixtures'
@@ -115,6 +115,57 @@ describe('AgentPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '应用修改' }))
 
     expect(useDocumentStore.getState().currentDoc?.root.children[1].text).toBe('助理改写')
+    expect(useDocumentStore.getState().canUndo).toBe(true)
+  })
+
+  it('requires a second confirmation before applying high-risk delete plans', () => {
+    const doc = useDocumentStore.getState().currentDoc!
+    render(<AgentPanel />)
+
+    act(() => {
+      useAgentStore.getState().setPendingPlan({
+        schemaVersion: 1,
+        contextScope: 'currentDocument',
+        documentId: doc.id,
+        snapshotKey: JSON.stringify(doc),
+        summary: '删除过期节点',
+        rationale: '用户要求清理重复内容',
+        riskLevel: 'high',
+        references: [
+          {
+            sourceType: 'currentDocument',
+            documentId: doc.id,
+            nodeId: 'node-1',
+            path: ['第一节点'],
+            snippet: '第一节点',
+          },
+        ],
+        operations: [
+          {
+            type: 'deleteNode',
+            nodeId: 'node-1',
+            reason: '清理重复内容',
+          },
+        ],
+      })
+    })
+
+    expect(screen.getByText(/删除 1 个子节点/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '应用修改' }))
+
+    const dialog = screen.getByRole('dialog', { name: '确认删除节点' })
+    expect(dialog).toBeInTheDocument()
+    expect(within(dialog).getByText('第一节点')).toBeInTheDocument()
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual([
+      'node-1',
+      'node-2',
+    ])
+
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual([
+      'node-2',
+    ])
     expect(useDocumentStore.getState().canUndo).toBe(true)
   })
 
