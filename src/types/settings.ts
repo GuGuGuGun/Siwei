@@ -19,6 +19,7 @@ export interface AppSettings {
   sidebarCollapsed: boolean
   theme: ThemeMode
   focusMode: boolean
+  experimentalMindMapLayoutEngine: boolean
   agent: AgentSettings
 }
 
@@ -29,6 +30,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sidebarCollapsed: false,
   theme: 'system',
   focusMode: false,
+  experimentalMindMapLayoutEngine: false,
   agent: {
     enabled: false,
     provider: 'openai-compatible',

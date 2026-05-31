@@ -217,8 +217,12 @@ describe('documentStore', () => {
 
     expect(useDocumentStore.getState().currentDoc?.version).toBe(2)
     expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toEqual({
-      'node-1': { x: 120, y: 80 },
-      'node-2': { x: 260, y: 80 },
+      engineVersion: 1,
+      strategy: 'classic-dagre',
+      nodes: {
+        'node-1': { position: { x: 120, y: 80 }, source: 'manual', locked: true },
+        'node-2': { position: { x: 260, y: 80 }, source: 'manual', locked: true },
+      },
     })
     expect(useDocumentStore.getState().isDirty).toBe(true)
     expect(useDocumentStore.getState().canUndo).toBe(true)
@@ -227,7 +231,7 @@ describe('documentStore', () => {
     expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toBeUndefined()
 
     useDocumentStore.getState().redo()
-    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.['node-1']).toEqual({ x: 120, y: 80 })
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.nodes['node-1'].position).toEqual({ x: 120, y: 80 })
   })
 
   it('saves mind map layout and upgrades the document version', async () => {
@@ -236,7 +240,11 @@ describe('documentStore', () => {
       currentDoc: {
         ...doc,
         mindMapLayout: {
-          'node-1': { x: 12, y: 34 },
+          engineVersion: 1,
+          strategy: 'classic-dagre',
+          nodes: {
+            'node-1': { position: { x: 12, y: 34 }, source: 'manual', locked: true },
+          },
         },
       },
       collapsedNodeIds: new Set<string>(),
@@ -251,7 +259,7 @@ describe('documentStore', () => {
     expect(saved).toBe(true)
     const savedDoc = apiMock.saveDocument.mock.calls[0][1]
     expect(savedDoc.version).toBe(2)
-    expect(savedDoc.mindMapLayout).toEqual({ 'node-1': { x: 12, y: 34 } })
+    expect(savedDoc.mindMapLayout?.nodes['node-1'].position).toEqual({ x: 12, y: 34 })
     expect(useDocumentStore.getState().isDirty).toBe(false)
   })
 

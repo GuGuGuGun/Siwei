@@ -85,6 +85,7 @@ mod tests {
             sidebar_collapsed: true,
             theme: ThemeMode::Dark,
             focus_mode: true,
+            experimental_mind_map_layout_engine: true,
             agent: Default::default(),
         };
 
@@ -120,6 +121,7 @@ mod tests {
         assert_eq!(settings.default_view_mode, DefaultViewMode::Split);
         assert_eq!(settings.theme, ThemeMode::System);
         assert!(!settings.focus_mode);
+        assert!(!settings.experimental_mind_map_layout_engine);
     }
 
     #[test]

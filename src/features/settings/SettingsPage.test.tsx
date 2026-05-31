@@ -15,6 +15,7 @@ const baseSettings: AppSettings = {
   sidebarCollapsed: false,
   theme: 'system',
   focusMode: false,
+  experimentalMindMapLayoutEngine: false,
   agent: {
     enabled: false,
     provider: 'openai-compatible',
@@ -80,6 +81,23 @@ describe('SettingsPage', () => {
     await waitFor(() => {
       expect(updateSettings).toHaveBeenCalledWith({ theme: 'dark' })
       expect(updateSettings).toHaveBeenCalledWith({ focusMode: true })
+    })
+
+    updateSettings.mockRestore()
+  })
+
+  it('updates the experimental mind map layout engine flag', async () => {
+    const updateSettings = vi.spyOn(useSettingsStore.getState(), 'updateSettings')
+      .mockImplementation(async (patch) => {
+        useSettingsStore.setState((state) => ({ settings: { ...state.settings, ...patch } }))
+      })
+
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByLabelText('启用实验性导图布局引擎'))
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalledWith({ experimentalMindMapLayoutEngine: true })
     })
 
     updateSettings.mockRestore()

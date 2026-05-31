@@ -4,13 +4,29 @@ export interface OutlineDocument {
   version: number
   createdAt: number
   updatedAt: number
-  mindMapLayout?: Record<string, MindMapLayoutPosition>
+  mindMapLayout?: MindMapLayoutState
   root: OutlineNode
 }
 
 export interface MindMapLayoutPosition {
   x: number
   y: number
+}
+
+export type MindMapLayoutStrategy = 'classic-dagre' | 'balanced-mindmap'
+export type MindMapLayoutNodeSource = 'auto' | 'manual'
+
+export interface MindMapLayoutState {
+  engineVersion: number
+  strategy: MindMapLayoutStrategy
+  nodes: Record<string, MindMapLayoutNodeState>
+}
+
+export interface MindMapLayoutNodeState {
+  position: MindMapLayoutPosition
+  source: MindMapLayoutNodeSource
+  locked: boolean
+  updatedAt?: number
 }
 
 export interface OutlineNode {

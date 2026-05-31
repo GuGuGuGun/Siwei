@@ -11,6 +11,8 @@ pub struct AppSettings {
     pub theme: ThemeMode,
     #[serde(default)]
     pub focus_mode: bool,
+    #[serde(default)]
+    pub experimental_mind_map_layout_engine: bool,
     pub agent: AgentSettings,
 }
 
@@ -75,6 +77,7 @@ impl Default for AppSettings {
             sidebar_collapsed: false,
             theme: ThemeMode::System,
             focus_mode: false,
+            experimental_mind_map_layout_engine: false,
             agent: AgentSettings::default(),
         }
     }

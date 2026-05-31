@@ -1,5 +1,6 @@
 import React from 'react'
 import { GitBranch, LayoutDashboard, Move, Search, X } from 'lucide-react'
+import type { MindMapLayoutStrategy } from '../../types/document'
 
 export type MindMapMode = 'layout' | 'reorganize'
 
@@ -7,7 +8,10 @@ interface MindMapToolbarProps {
   mode: MindMapMode
   focused: boolean
   searchOpen: boolean
+  experimentalLayoutEnabled: boolean
+  strategy: MindMapLayoutStrategy
   onModeChange: (mode: MindMapMode) => void
+  onStrategyChange: (strategy: MindMapLayoutStrategy) => void
   onAutoLayout: () => void
   onToggleSearch: () => void
   onResetFocus: () => void
@@ -17,7 +21,10 @@ export const MindMapToolbar: React.FC<MindMapToolbarProps> = ({
   mode,
   focused,
   searchOpen,
+  experimentalLayoutEnabled,
+  strategy,
   onModeChange,
+  onStrategyChange,
   onAutoLayout,
   onToggleSearch,
   onResetFocus,
@@ -55,6 +62,18 @@ export const MindMapToolbar: React.FC<MindMapToolbarProps> = ({
       >
         <LayoutDashboard className="h-4 w-4" />
       </button>
+      {experimentalLayoutEnabled && (
+        <select
+          aria-label="导图布局策略"
+          title="导图布局策略"
+          value={strategy}
+          onChange={(event) => onStrategyChange(event.target.value as MindMapLayoutStrategy)}
+          className="h-8 rounded-md border border-amber-900/10 bg-white px-2 text-xs font-medium text-zinc-600 outline-none transition hover:bg-amber-50 focus:ring-2 focus:ring-amber-200"
+        >
+          <option value="classic-dagre">经典</option>
+          <option value="balanced-mindmap">平衡</option>
+        </select>
+      )}
       <button
         type="button"
         aria-label="搜索导图"

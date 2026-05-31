@@ -6,6 +6,7 @@ import { MindMapLayoutPosition } from '../../types/document'
 interface LayoutGraphOptions {
   savedLayout?: Record<string, MindMapLayoutPosition>
   preserveSavedPositions?: boolean
+  nodeSizes?: Record<string, { width: number; height: number }>
 }
 
 /**
@@ -35,7 +36,8 @@ export function layoutGraph(graphData: GraphData, options: LayoutGraphOptions = 
 
   // Add nodes to dagre
   nodes.forEach((node) => {
-    dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight })
+    const size = options.nodeSizes?.[node.id] ?? { width: nodeWidth, height: nodeHeight }
+    dagreGraph.setNode(node.id, size)
   })
 
   // Add edges to dagre
@@ -50,6 +52,7 @@ export function layoutGraph(graphData: GraphData, options: LayoutGraphOptions = 
   const layoutedNodes = nodes.map((node) => {
     const dagreNode = dagreGraph.node(node.id)
     const savedPosition = options.savedLayout?.[node.id]
+    const size = options.nodeSizes?.[node.id] ?? { width: nodeWidth, height: nodeHeight }
     
     return {
       ...node,
@@ -58,8 +61,8 @@ export function layoutGraph(graphData: GraphData, options: LayoutGraphOptions = 
       position: options.preserveSavedPositions && savedPosition
         ? savedPosition
         : {
-          x: dagreNode.x - nodeWidth / 2,
-          y: dagreNode.y - nodeHeight / 2,
+          x: dagreNode.x - size.width / 2,
+          y: dagreNode.y - size.height / 2,
         },
     }
   })

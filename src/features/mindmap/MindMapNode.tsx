@@ -21,6 +21,9 @@ export interface MindMapNodeData {
   agentInsertion?: boolean
   checked?: boolean
   editing: boolean
+  leftBranchCollapsed?: boolean
+  rightBranchCollapsed?: boolean
+  onToggleBranchSide?: (nodeId: string, side: 'left' | 'right') => void
   onToggleCollapse: (nodeId: string) => void
   onTextChange: (nodeId: string, text: string) => void
   onCommitEdit: (nodeId: string) => void
@@ -35,6 +38,8 @@ export interface MindMapNodeData {
   onToggleChecked: (nodeId: string) => void
 }
 
+const handleStyle = { background: '#A27B5C', border: 'none', width: 6, height: 6 }
+
 export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, selected, type }) => {
   const isRoot = type === 'root'
   const hasChildren = data.childCount > 0
@@ -42,6 +47,11 @@ export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, se
   const isAgentDeleting = data.agentPreview?.kind === 'delete'
   const isAgentMoving = data.agentPreview?.kind === 'move'
   const agentTextPreview = data.agentPreview?.kind === 'update' ? data.agentPreview.text : undefined
+
+  const handleBranchSideClick = (event: React.MouseEvent, side: 'left' | 'right') => {
+    event.stopPropagation()
+    data.onToggleBranchSide?.(id, side)
+  }
 
   return (
     <div
@@ -73,13 +83,22 @@ export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, se
       {data.dropState === 'before' && <div className="absolute -top-2 left-2 right-2 h-0.5 rounded bg-emerald-600" />}
       {data.dropState === 'after' && <div className="absolute -bottom-2 left-2 right-2 h-0.5 rounded bg-emerald-600" />}
       {data.invalidDrop && <div className="absolute -top-2 left-2 right-2 h-0.5 rounded bg-rose-500" />}
-      {!isRoot && (
-        <Handle
-          type="target"
-          position={Position.Left}
-          style={{ background: '#A27B5C', border: 'none', width: 6, height: 6 }}
-        />
-      )}
+      <Handle id="left-target" type="target" position={Position.Left} style={handleStyle} />
+      <Handle
+        id="left-source"
+        type="source"
+        position={Position.Left}
+        style={handleStyle}
+        onClick={(event) => handleBranchSideClick(event, 'left')}
+      />
+      <Handle id="right-target" type="target" position={Position.Right} style={handleStyle} />
+      <Handle
+        id="right-source"
+        type="source"
+        position={Position.Right}
+        style={handleStyle}
+        onClick={(event) => handleBranchSideClick(event, 'right')}
+      />
 
       <div className="flex min-h-8 items-center gap-2">
         <button
@@ -171,11 +190,6 @@ export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, se
         </div>
       )}
 
-      <Handle
-        type="source"
-        position={Position.Right}
-        style={{ background: '#A27B5C', border: 'none', width: 6, height: 6 }}
-      />
     </div>
   )
 }

@@ -65,8 +65,38 @@ fn load_document_without_fallback(path: &Path) -> AppResult<OutlineDocument> {
         operation: "读取文档",
         source,
     })?;
-    let doc = serde_json::from_str::<OutlineDocument>(&content)
-        .map_err(|error| AppError::JsonParse(error.to_string()))?;
+    deserialize_document_tolerating_broken_layout(&content)
+}
+
+fn deserialize_document_tolerating_broken_layout(content: &str) -> AppResult<OutlineDocument> {
+    match serde_json::from_str::<OutlineDocument>(content) {
+        Ok(doc) => match doc.validate() {
+            Ok(()) => Ok(doc),
+            Err(primary_error) => {
+                deserialize_document_without_layout(content, primary_error.to_string())
+            }
+        },
+        Err(primary_error) => {
+            deserialize_document_without_layout(content, primary_error.to_string())
+        }
+    }
+}
+
+fn deserialize_document_without_layout(
+    content: &str,
+    primary_error_message: String,
+) -> AppResult<OutlineDocument> {
+    let mut value = serde_json::from_str::<serde_json::Value>(content)
+        .map_err(|_| AppError::JsonParse(primary_error_message.clone()))?;
+    let Some(object) = value.as_object_mut() else {
+        return Err(AppError::JsonParse(primary_error_message));
+    };
+    if object.remove("mindMapLayout").is_none() {
+        return Err(AppError::JsonParse(primary_error_message));
+    }
+
+    let doc = serde_json::from_value::<OutlineDocument>(value)
+        .map_err(|_| AppError::JsonParse(primary_error_message.clone()))?;
     doc.validate()?;
     Ok(doc)
 }
@@ -260,6 +290,104 @@ mod tests {
             loaded.root.children[0].tags.as_deref(),
             Some(&["工作".to_string(), "重要".to_string()][..])
         );
+    }
+
+    #[test]
+    fn broken_mind_map_layout_does_not_block_document_content_loading() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("doc.siwei.json");
+        fs::write(
+            &path,
+            r#"{
+              "id": "doc_1",
+              "title": "Readable",
+              "version": 2,
+              "createdAt": 1,
+              "updatedAt": 1,
+              "mindMapLayout": {
+                "engineVersion": 1,
+                "strategy": "balanced-mindmap",
+                "nodes": {
+                  "child_a": {
+                    "position": { "x": "bad", "y": 80 },
+                    "source": "manual",
+                    "locked": true
+                  }
+                }
+              },
+              "root": {
+                "id": "root_1",
+                "text": "Readable",
+                "createdAt": 1,
+                "updatedAt": 1,
+                "children": [
+                  {
+                    "id": "child_a",
+                    "text": "child",
+                    "createdAt": 1,
+                    "updatedAt": 1,
+                    "children": []
+                  }
+                ]
+              }
+            }"#,
+        )
+        .unwrap();
+
+        let loaded = load_document(&path).unwrap();
+
+        assert_eq!(loaded.title, "Readable");
+        assert!(loaded.mind_map_layout.is_none());
+        assert_eq!(loaded.root.children[0].text, "child");
+    }
+
+    #[test]
+    fn invalid_but_deserializable_mind_map_layout_does_not_block_document_content_loading() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("doc.siwei.json");
+        fs::write(
+            &path,
+            r#"{
+              "id": "doc_1",
+              "title": "Readable",
+              "version": 2,
+              "createdAt": 1,
+              "updatedAt": 1,
+              "mindMapLayout": {
+                "engineVersion": 0,
+                "strategy": "balanced-mindmap",
+                "nodes": {
+                  "child_a": {
+                    "position": { "x": 120, "y": 80 },
+                    "source": "manual",
+                    "locked": true
+                  }
+                }
+              },
+              "root": {
+                "id": "root_1",
+                "text": "Readable",
+                "createdAt": 1,
+                "updatedAt": 1,
+                "children": [
+                  {
+                    "id": "child_a",
+                    "text": "child",
+                    "createdAt": 1,
+                    "updatedAt": 1,
+                    "children": []
+                  }
+                ]
+              }
+            }"#,
+        )
+        .unwrap();
+
+        let loaded = load_document(&path).unwrap();
+
+        assert_eq!(loaded.title, "Readable");
+        assert!(loaded.mind_map_layout.is_none());
+        assert_eq!(loaded.root.children[0].text, "child");
     }
 
     #[test]

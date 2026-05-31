@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { MindMapLayoutPosition, OutlineDocument, OutlineNode } from '../../types/document'
+import { MindMapLayoutPosition, MindMapLayoutState, OutlineDocument, OutlineNode } from '../../types/document'
 import * as api from '../../services/siweiApi'
 import { generateId } from '../../utils/id'
 import { applyAgentChangePlanToDocument, createDocumentSnapshotKey } from '../agent/agentChangePlan'
@@ -30,6 +30,7 @@ import {
   moveNodeToParentIndexAtPath,
   getVisibleNodes,
 } from '../../utils/tree'
+import { normalizeMindMapLayoutState } from '../mindmap/mindMapLayoutState'
 
 export type ViewMode = 'outline' | 'mindmap' | 'split'
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
@@ -94,7 +95,7 @@ interface DocumentState {
   moveNode: (nodeId: string, direction: 'up' | 'down') => void
   moveNodeToSibling: (sourceNodeId: string, targetNodeId: string) => void
   moveNodeToParent: (sourceNodeId: string, targetParentNodeId: string, targetIndex: number) => void
-  commitMindMapLayout: (layout: Record<string, MindMapLayoutPosition>) => void
+  commitMindMapLayout: (layout: MindMapLayoutState | Record<string, MindMapLayoutPosition>) => void
   insertNode: (nodeId: string, text?: string) => string | null
   insertSiblingNode: (nodeId: string, text?: string) => string | null
   insertChildNode: (parentNodeId: string, text?: string) => string | null
@@ -331,9 +332,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
   }
 
   const getDocumentWithVersionForSave = (doc: OutlineDocument): OutlineDocument => {
-    if (!doc.mindMapLayout) return doc
+    const mindMapLayout = normalizeMindMapLayoutState(doc.mindMapLayout)
+    if (!mindMapLayout) return doc
     return {
       ...doc,
+      mindMapLayout,
       version: Math.max(doc.version, 2),
     }
   }
@@ -393,7 +396,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
 
     loadDoc: async (path) => {
       try {
-        const doc = await api.loadDocument(path)
+        const doc = {
+          ...await api.loadDocument(path),
+        }
+        doc.mindMapLayout = normalizeMindMapLayoutState(doc.mindMapLayout)
         const collapsedIds = new Set<string>()
         collectCollapsedIds(doc.root, collapsedIds)
         
@@ -536,6 +542,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           doc = await api.importMarkdown(path)
         } else {
           doc = await api.importJson(path)
+        }
+        doc = {
+          ...doc,
+          mindMapLayout: normalizeMindMapLayoutState(doc.mindMapLayout),
         }
 
         const collapsedIds = new Set<string>()
@@ -778,11 +788,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       const { currentDoc } = get()
       if (!currentDoc || !before) return
 
+      const normalizedLayout = normalizeMindMapLayoutState(layout)
+      if (!normalizedLayout) return
+
       const updatedDoc = {
         ...currentDoc,
         version: Math.max(currentDoc.version, 2),
         updatedAt: Date.now(),
-        mindMapLayout: layout,
+        mindMapLayout: normalizedLayout,
       }
 
       set((state) => ({

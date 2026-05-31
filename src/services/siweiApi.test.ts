@@ -151,6 +151,7 @@ describe('siweiApi', () => {
       sidebarCollapsed: true,
       theme: 'dark',
       focusMode: true,
+      experimentalMindMapLayoutEngine: true,
       agent: {
         enabled: false,
         provider: 'openai-compatible',

@@ -5,6 +5,7 @@ import { createDocumentSnapshotKey } from '../agent/agentChangePlan'
 import { useAgentStore } from '../agent/agentStore'
 import type { AgentChangePlan, AgentOperation } from '../agent/agentTypes'
 import { useDocumentStore } from '../document/documentStore'
+import { useSettingsStore } from '../settings/settingsStore'
 import { MindMapView } from './MindMapView'
 
 vi.mock('reactflow', async () => {
@@ -73,6 +74,8 @@ vi.mock('reactflow', async () => {
                 data-testid={`flow-node-${node.id}`}
                 data-position-x={node.position?.x}
                 data-position-y={node.position?.y}
+                data-width={node.width}
+                data-height={node.height}
                 onClick={(event) => {
                   event.stopPropagation()
                   onNodeClick?.(event, node)
@@ -131,7 +134,9 @@ vi.mock('reactflow', async () => {
         </div>
       )
     },
-    Handle: () => <span data-testid="flow-handle" />,
+    Handle: ({ id, onClick }: { id?: string; onClick?: React.MouseEventHandler }) => (
+      <span data-testid={`flow-handle-${id}`} onClick={onClick} />
+    ),
     Position: { Left: 'left', Right: 'right' },
     MiniMap: () => <div data-testid="flow-minimap" />,
     Controls: () => <div data-testid="flow-controls" />,
@@ -267,7 +272,11 @@ describe('MindMapView', () => {
 
     fireEvent.dragEnd(screen.getByTestId('flow-node-node-2'))
 
-    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.['node-2']).toEqual({ x: 333, y: 222 })
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.nodes['node-2']).toMatchObject({
+      position: { x: 333, y: 222 },
+      source: 'manual',
+      locked: true,
+    })
     expect(useDocumentStore.getState().isDirty).toBe(true)
     expect(screen.getByText('布局已更新')).toBeInTheDocument()
   })
@@ -301,10 +310,14 @@ describe('MindMapView', () => {
         ? {
           ...state.currentDoc,
           mindMapLayout: {
-            root: { x: 0, y: 0 },
-            'node-1': { x: 300, y: 100 },
-            'node-1-1': { x: 600, y: 100 },
-            'node-2': { x: 900, y: 300 },
+            engineVersion: 1,
+            strategy: 'classic-dagre',
+            nodes: {
+              root: { position: { x: 0, y: 0 }, source: 'manual', locked: true },
+              'node-1': { position: { x: 300, y: 100 }, source: 'manual', locked: true },
+              'node-1-1': { position: { x: 600, y: 100 }, source: 'manual', locked: true },
+              'node-2': { position: { x: 900, y: 300 }, source: 'manual', locked: true },
+            },
           },
         }
         : state.currentDoc,
@@ -312,6 +325,7 @@ describe('MindMapView', () => {
     render(<MindMapView />)
 
     fireEvent.click(screen.getByRole('button', { name: '重组' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '重组' })).toHaveClass('bg-emerald-100'))
     const draggedNode = screen.getByTestId('flow-node-node-2')
     expect(draggedNode).toHaveAttribute('data-position-x', '900')
 
@@ -328,10 +342,14 @@ describe('MindMapView', () => {
         ? {
           ...state.currentDoc,
           mindMapLayout: {
-            root: { x: 0, y: 0 },
-            'node-1': { x: 100, y: 80 },
-            'node-1-1': { x: 240, y: 96 },
-            'node-2': { x: 500, y: 220 },
+            engineVersion: 1,
+            strategy: 'classic-dagre',
+            nodes: {
+              root: { position: { x: 0, y: 0 }, source: 'manual', locked: true },
+              'node-1': { position: { x: 100, y: 80 }, source: 'manual', locked: true },
+              'node-1-1': { position: { x: 240, y: 96 }, source: 'manual', locked: true },
+              'node-2': { position: { x: 500, y: 220 }, source: 'manual', locked: true },
+            },
           },
         }
         : state.currentDoc,
@@ -339,6 +357,7 @@ describe('MindMapView', () => {
     render(<MindMapView />)
 
     fireEvent.click(screen.getByRole('button', { name: '重组' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '重组' })).toHaveClass('bg-emerald-100'))
     fireEvent.drag(screen.getByTestId('flow-node-node-2'))
 
     await waitFor(() => expect(screen.getByTestId('mindmap-node-node-1')).toHaveClass('ring-4'))
@@ -346,7 +365,7 @@ describe('MindMapView', () => {
 
     fireEvent.dragEnd(screen.getByTestId('flow-node-node-2'))
 
-    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.['node-1-1']).toEqual({ x: 240, y: 96 })
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.nodes['node-1-1'].position).toEqual({ x: 240, y: 96 })
   })
 
   it('renders assistant previews inside mind map nodes', () => {
@@ -400,6 +419,170 @@ describe('MindMapView', () => {
 
     expect(screen.getByTestId('mindmap-node-agent-insertion-preview:agent-node')).toHaveTextContent('计算器开发')
     expect(screen.getByTestId('mindmap-node-agent-insertion-preview:agent-node')).toHaveTextContent('将插入')
+  })
+
+  it('renders nested assistant insertion preview nodes before confirmation', () => {
+    const doc = createDocument()
+    const emptyDoc = {
+      ...doc,
+      root: {
+        ...doc.root,
+        children: [],
+      },
+    }
+    useDocumentStore.setState({ currentDoc: emptyDoc })
+    act(() => {
+      useAgentStore.getState().setPendingPlan({
+        ...createStrictPlan(emptyDoc.id, createDocumentSnapshotKey(emptyDoc), [
+          {
+            type: 'insertNode',
+            parentNodeId: emptyDoc.root.id,
+            index: 0,
+            node: {
+              id: 'agent-root',
+              text: 'AI 生成导图',
+              children: [
+                {
+                  id: 'agent-child',
+                  text: '一级分支',
+                  children: [
+                    {
+                      id: 'agent-grandchild',
+                      text: '二级分支',
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ]),
+      })
+    })
+
+    render(<MindMapView />)
+
+    expect(screen.getByTestId('mindmap-node-agent-insertion-preview:agent-root')).toHaveTextContent('AI 生成导图')
+    expect(screen.getByTestId('mindmap-node-agent-insertion-preview:agent-child')).toHaveTextContent('一级分支')
+    expect(screen.getByTestId('mindmap-node-agent-insertion-preview:agent-grandchild')).toHaveTextContent('二级分支')
+  })
+
+  it('lays out nested assistant insertion previews with the balanced strategy before confirmation', () => {
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        experimentalMindMapLayoutEngine: true,
+      },
+    }))
+    const doc = createDocument()
+    const emptyDoc = {
+      ...doc,
+      root: {
+        ...doc.root,
+        children: [],
+      },
+    }
+    useDocumentStore.setState({ currentDoc: emptyDoc })
+    act(() => {
+      useAgentStore.getState().setPendingPlan({
+        ...createStrictPlan(emptyDoc.id, createDocumentSnapshotKey(emptyDoc), [
+          {
+            type: 'insertNode',
+            parentNodeId: emptyDoc.root.id,
+            index: 0,
+            node: {
+              id: 'agent-root',
+              text: 'AI 生成导图',
+              children: [
+                {
+                  id: 'agent-child',
+                  text: '一级分支',
+                },
+              ],
+            },
+          },
+        ]),
+      })
+    })
+
+    render(<MindMapView />)
+    fireEvent.change(screen.getByLabelText('导图布局策略'), { target: { value: 'balanced-mindmap' } })
+
+    const previewRootX = Number(screen.getByTestId('flow-node-agent-insertion-preview:agent-root').dataset.positionX)
+    const previewChildX = Number(screen.getByTestId('flow-node-agent-insertion-preview:agent-child').dataset.positionX)
+
+    expect(previewRootX).toBeLessThan(0)
+    expect(previewChildX).toBeLessThan(previewRootX)
+  })
+
+  it('collapses and restores one branch side from the side handle in balanced layout', async () => {
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        experimentalMindMapLayoutEngine: true,
+      },
+    }))
+    useDocumentStore.setState((state) => ({
+      currentDoc: state.currentDoc
+        ? {
+          ...state.currentDoc,
+          root: {
+            ...state.currentDoc.root,
+            children: [
+              {
+                id: 'topic',
+                text: '中心主题',
+                createdAt: 1,
+                updatedAt: 1,
+                children: [
+                  { id: 'left-child', text: '左侧分支', createdAt: 1, updatedAt: 1, children: [] },
+                  { id: 'right-child', text: '右侧分支', createdAt: 1, updatedAt: 1, children: [] },
+                ],
+              },
+            ],
+          },
+        }
+        : state.currentDoc,
+    }))
+
+    render(<MindMapView />)
+    fireEvent.change(screen.getByLabelText('导图布局策略'), { target: { value: 'balanced-mindmap' } })
+
+    expect(screen.getByTestId('flow-node-left-child')).toBeInTheDocument()
+    expect(screen.getByTestId('flow-node-right-child')).toBeInTheDocument()
+
+    fireEvent.click(within(screen.getByTestId('mindmap-node-topic')).getByTestId('flow-handle-left-source'))
+
+    await waitFor(() => expect(screen.queryByTestId('flow-node-left-child')).not.toBeInTheDocument())
+    expect(screen.getByTestId('flow-node-right-child')).toBeInTheDocument()
+
+    fireEvent.click(within(screen.getByTestId('mindmap-node-topic')).getByTestId('flow-handle-left-source'))
+
+    await waitFor(() => expect(screen.getByTestId('flow-node-left-child')).toBeInTheDocument())
+  })
+
+  it('keeps layout node sizes on rendered nodes after insertion', () => {
+    const doc = createDocument()
+    const insertedDoc = {
+      ...doc,
+      root: {
+        ...doc.root,
+        children: [
+          {
+            ...doc.root.children[0],
+            id: 'inserted-node',
+            text: '插入后真实节点',
+            children: [],
+          },
+        ],
+      },
+    }
+    useDocumentStore.setState({ currentDoc: insertedDoc })
+
+    render(<MindMapView />)
+
+    expect(screen.getByTestId('flow-node-inserted-node')).toHaveAttribute('data-position-x')
+    expect(screen.getByTestId('flow-node-inserted-node')).toHaveAttribute('data-width')
+    expect(screen.getByTestId('flow-node-inserted-node')).toHaveAttribute('data-height')
   })
 
   it('focuses a branch from the mind map context menu and returns to the full map', async () => {
@@ -467,8 +650,12 @@ describe('MindMapView', () => {
         ? {
           ...state.currentDoc,
           mindMapLayout: {
-            root: { x: 0, y: 0 },
-            'node-1': { x: 10, y: 20 },
+            engineVersion: 1,
+            strategy: 'classic-dagre',
+            nodes: {
+              root: { position: { x: 0, y: 0 }, source: 'manual', locked: true },
+              'node-1': { position: { x: 10, y: 20 }, source: 'manual', locked: true },
+            },
           },
         }
         : state.currentDoc,
@@ -478,7 +665,7 @@ describe('MindMapView', () => {
     fireEvent.click(screen.getByRole('button', { name: '自动整理' }))
 
     expect(confirmSpy).toHaveBeenCalledWith('自动布局会覆盖当前手动布局，是否继续？')
-    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.['node-1']).toEqual({ x: 10, y: 20 })
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.nodes['node-1'].position).toEqual({ x: 10, y: 20 })
     confirmSpy.mockRestore()
   })
 

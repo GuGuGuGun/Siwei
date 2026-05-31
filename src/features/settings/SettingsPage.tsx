@@ -2,6 +2,7 @@ import React from 'react'
 import {
   Bot,
   Database,
+  FlaskConical,
   KeyRound,
   List,
   Maximize,
@@ -170,6 +171,22 @@ export const SettingsPage: React.FC = () => {
                   )
                 })}
               </div>
+            </SettingRow>
+          </SettingsSection>
+
+          <SettingsSection title="实验">
+            <SettingRow title="启用实验性导图布局引擎" description="开启后可在导图工具栏切换新的布局策略。">
+              <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-zinc-600">
+                <input
+                  aria-label="启用实验性导图布局引擎"
+                  type="checkbox"
+                  checked={settings.experimentalMindMapLayoutEngine}
+                  onChange={(event) => void saveSetting({ experimentalMindMapLayoutEngine: event.target.checked })}
+                  className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                />
+                <FlaskConical size={13} />
+                {settings.experimentalMindMapLayoutEngine ? '已开启' : '已关闭'}
+              </label>
             </SettingRow>
           </SettingsSection>
 

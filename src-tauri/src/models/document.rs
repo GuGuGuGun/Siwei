@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::utils::{error::AppError, id::new_id, time::now_millis};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct OutlineDocument {
     pub id: String,
@@ -13,18 +13,54 @@ pub struct OutlineDocument {
     pub created_at: u64,
     pub updated_at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mind_map_layout: Option<BTreeMap<String, MindMapLayoutPosition>>,
+    pub mind_map_layout: Option<MindMapLayoutState>,
     pub root: OutlineNode,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct MindMapLayoutPosition {
-    pub x: i64,
-    pub y: i64,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", untagged)]
+pub enum MindMapLayoutState {
+    #[serde(rename_all = "camelCase")]
+    V1 {
+        engine_version: u32,
+        strategy: MindMapLayoutStrategy,
+        nodes: BTreeMap<String, MindMapLayoutNodeState>,
+    },
+    Legacy(BTreeMap<String, MindMapLayoutPosition>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum MindMapLayoutStrategy {
+    ClassicDagre,
+    BalancedMindmap,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MindMapLayoutNodeState {
+    pub position: MindMapLayoutPosition,
+    pub source: MindMapLayoutNodeSource,
+    pub locked: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MindMapLayoutNodeSource {
+    Auto,
+    Manual,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MindMapLayoutPosition {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct OutlineNode {
     pub id: String,
@@ -73,6 +109,90 @@ impl OutlineDocument {
 
         let mut node_ids = HashSet::new();
         self.root.validate_recursive("root", &mut node_ids)?;
+        if let Some(layout) = &self.mind_map_layout {
+            layout.validate()?;
+        }
+        Ok(())
+    }
+}
+
+impl MindMapLayoutState {
+    pub fn normalize(self) -> Self {
+        match self {
+            MindMapLayoutState::V1 {
+                engine_version,
+                strategy,
+                nodes,
+            } => MindMapLayoutState::V1 {
+                engine_version,
+                strategy,
+                nodes,
+            },
+            MindMapLayoutState::Legacy(positions) => MindMapLayoutState::V1 {
+                engine_version: 1,
+                strategy: MindMapLayoutStrategy::ClassicDagre,
+                nodes: positions
+                    .into_iter()
+                    .map(|(node_id, position)| {
+                        (
+                            node_id,
+                            MindMapLayoutNodeState {
+                                position,
+                                source: MindMapLayoutNodeSource::Manual,
+                                locked: true,
+                                updated_at: None,
+                            },
+                        )
+                    })
+                    .collect(),
+            },
+        }
+    }
+
+    fn validate(&self) -> Result<(), AppError> {
+        let normalized = self.clone().normalize();
+        let MindMapLayoutState::V1 {
+            engine_version,
+            nodes,
+            ..
+        } = normalized
+        else {
+            unreachable!("layout normalization always returns v1")
+        };
+
+        if engine_version == 0 {
+            return Err(AppError::Validation(
+                "mindMapLayout.engineVersion 必须为受支持的正整数".to_string(),
+            ));
+        }
+
+        for (node_id, node_state) in nodes {
+            if node_id.trim().is_empty() {
+                return Err(AppError::Validation(
+                    "mindMapLayout.nodes 节点 ID 不能为空".to_string(),
+                ));
+            }
+            node_state.validate(&format!("mindMapLayout.nodes.{node_id}"))?;
+        }
+
+        Ok(())
+    }
+}
+
+impl MindMapLayoutNodeState {
+    fn validate(&self, location: &str) -> Result<(), AppError> {
+        if !self.position.x.is_finite() || !self.position.y.is_finite() {
+            return Err(AppError::Validation(format!(
+                "{location}.position 坐标必须为有限数字"
+            )));
+        }
+
+        if self.updated_at == Some(0) {
+            return Err(AppError::Validation(format!(
+                "{location}.updatedAt 必须为合法时间戳"
+            )));
+        }
+
         Ok(())
     }
 }
@@ -147,7 +267,10 @@ mod tests {
     use pretty_assertions::assert_eq;
     use serde_json::json;
 
-    use super::{OutlineDocument, OutlineNode};
+    use super::{
+        MindMapLayoutNodeSource, MindMapLayoutNodeState, MindMapLayoutPosition, MindMapLayoutState,
+        MindMapLayoutStrategy, OutlineDocument, OutlineNode,
+    };
 
     fn sample_doc() -> OutlineDocument {
         let child = OutlineNode {
@@ -218,19 +341,37 @@ mod tests {
     fn serializes_mind_map_layout_as_camel_case() {
         let mut doc = sample_doc();
         doc.version = 2;
-        doc.mind_map_layout = Some(BTreeMap::from([(
-            "child_123".to_string(),
-            super::MindMapLayoutPosition { x: 120, y: 80 },
-        )]));
+        doc.mind_map_layout = Some(MindMapLayoutState::V1 {
+            engine_version: 1,
+            strategy: MindMapLayoutStrategy::BalancedMindmap,
+            nodes: BTreeMap::from([(
+                "child_123".to_string(),
+                MindMapLayoutNodeState {
+                    position: MindMapLayoutPosition { x: 120.0, y: 80.0 },
+                    source: MindMapLayoutNodeSource::Manual,
+                    locked: true,
+                    updated_at: Some(2),
+                },
+            )]),
+        });
 
         let value = serde_json::to_value(doc).unwrap();
 
         assert_eq!(
             value["mindMapLayout"],
             json!({
-                "child_123": {
-                    "x": 120,
-                    "y": 80
+                "engineVersion": 1,
+                "strategy": "balanced-mindmap",
+                "nodes": {
+                    "child_123": {
+                        "position": {
+                            "x": 120.0,
+                            "y": 80.0
+                        },
+                        "source": "manual",
+                        "locked": true,
+                        "updatedAt": 2
+                    }
                 }
             })
         );
@@ -263,12 +404,102 @@ mod tests {
     fn validates_version_two_documents_with_layout() {
         let mut doc = sample_doc();
         doc.version = 2;
-        doc.mind_map_layout = Some(BTreeMap::from([(
-            "child_123".to_string(),
-            super::MindMapLayoutPosition { x: 120, y: 80 },
-        )]));
+        doc.mind_map_layout = Some(MindMapLayoutState::V1 {
+            engine_version: 1,
+            strategy: MindMapLayoutStrategy::ClassicDagre,
+            nodes: BTreeMap::from([(
+                "child_123".to_string(),
+                MindMapLayoutNodeState {
+                    position: MindMapLayoutPosition { x: 120.0, y: 80.0 },
+                    source: MindMapLayoutNodeSource::Auto,
+                    locked: false,
+                    updated_at: None,
+                },
+            )]),
+        });
 
         assert!(doc.validate().is_ok());
+    }
+
+    #[test]
+    fn deserializes_legacy_coordinate_layout_as_supported_layout_state() {
+        let doc: OutlineDocument = serde_json::from_value(json!({
+            "id": "doc_123",
+            "title": "Title",
+            "version": 2,
+            "createdAt": 1,
+            "updatedAt": 1,
+            "mindMapLayout": {
+                "child_123": { "x": 120, "y": 80 }
+            },
+            "root": {
+                "id": "root_123",
+                "text": "Title",
+                "createdAt": 1,
+                "updatedAt": 1,
+                "children": [
+                    {
+                        "id": "child_123",
+                        "text": "Child",
+                        "createdAt": 1,
+                        "updatedAt": 1,
+                        "children": []
+                    }
+                ]
+            }
+        }))
+        .unwrap();
+
+        let layout = doc.mind_map_layout.unwrap().normalize();
+        let MindMapLayoutState::V1 { nodes, strategy, .. } = layout else {
+            panic!("legacy layout should normalize to v1");
+        };
+
+        assert_eq!(strategy, MindMapLayoutStrategy::ClassicDagre);
+        assert_eq!(
+            nodes["child_123"].position,
+            MindMapLayoutPosition { x: 120.0, y: 80.0 }
+        );
+        assert_eq!(nodes["child_123"].source, MindMapLayoutNodeSource::Manual);
+        assert!(nodes["child_123"].locked);
+    }
+
+    #[test]
+    fn rejects_invalid_mind_map_layout_values() {
+        let mut doc = sample_doc();
+        doc.mind_map_layout = Some(MindMapLayoutState::V1 {
+            engine_version: 0,
+            strategy: MindMapLayoutStrategy::ClassicDagre,
+            nodes: BTreeMap::new(),
+        });
+        assert!(doc
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("mindMapLayout.engineVersion"));
+
+        let mut doc = sample_doc();
+        doc.mind_map_layout = Some(MindMapLayoutState::V1 {
+            engine_version: 1,
+            strategy: MindMapLayoutStrategy::ClassicDagre,
+            nodes: BTreeMap::from([(
+                "child_123".to_string(),
+                MindMapLayoutNodeState {
+                    position: MindMapLayoutPosition {
+                        x: f64::NAN,
+                        y: 80.0,
+                    },
+                    source: MindMapLayoutNodeSource::Auto,
+                    locked: false,
+                    updated_at: None,
+                },
+            )]),
+        });
+        assert!(doc
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("position 坐标"));
     }
 
     #[test]

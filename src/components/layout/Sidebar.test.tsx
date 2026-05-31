@@ -13,6 +13,7 @@ const sidebarSettings: AppSettings = {
   sidebarCollapsed: false,
   theme: 'system',
   focusMode: false,
+  experimentalMindMapLayoutEngine: false,
   agent: {
     enabled: false,
     provider: 'openai-compatible',
