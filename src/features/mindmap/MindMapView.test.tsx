@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDocument } from '../../test/fixtures'
 import { createDocumentSnapshotKey } from '../agent/agentChangePlan'
@@ -7,6 +7,7 @@ import type { AgentChangePlan, AgentOperation } from '../agent/agentTypes'
 import { useDocumentStore } from '../document/documentStore'
 import { useSettingsStore } from '../settings/settingsStore'
 import { MindMapView } from './MindMapView'
+import { DEFAULT_SETTINGS } from '../../types/settings'
 
 vi.mock('reactflow', async () => {
   const React = await import('react')
@@ -177,6 +178,12 @@ describe('MindMapView', () => {
       error: null,
       messages: [],
       isSending: false,
+    })
+    useSettingsStore.setState({
+      settings: DEFAULT_SETTINGS,
+      isLoaded: false,
+      isSaving: false,
+      error: null,
     })
   })
 
@@ -512,6 +519,108 @@ describe('MindMapView', () => {
 
     expect(previewRootX).toBeLessThan(0)
     expect(previewChildX).toBeLessThan(previewRootX)
+  })
+
+  it('shows radial strategy only when the experimental layout engine is enabled', () => {
+    render(<MindMapView />)
+
+    expect(screen.queryByLabelText('导图布局策略')).not.toBeInTheDocument()
+    cleanup()
+
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        experimentalMindMapLayoutEngine: true,
+      },
+    }))
+
+    render(<MindMapView />)
+
+    expect(screen.getByRole('option', { name: '径向' })).toHaveValue('radial-mindmap')
+  })
+
+  it('saves radial layout state with engine version 2 from auto layout', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        experimentalMindMapLayoutEngine: true,
+      },
+    }))
+    render(<MindMapView />)
+
+    fireEvent.change(screen.getByLabelText('导图布局策略'), { target: { value: 'radial-mindmap' } })
+    fireEvent.click(screen.getByRole('button', { name: '自动整理' }))
+
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toMatchObject({
+      engineVersion: 2,
+      strategy: 'radial-mindmap',
+    })
+    confirmSpy.mockRestore()
+  })
+
+  it('restores a saved radial strategy when the experimental layout engine is enabled', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        experimentalMindMapLayoutEngine: true,
+      },
+    }))
+    useDocumentStore.setState((state) => ({
+      currentDoc: state.currentDoc
+        ? {
+          ...state.currentDoc,
+          mindMapLayout: {
+            engineVersion: 2,
+            strategy: 'radial-mindmap',
+            nodes: {},
+          },
+        }
+        : state.currentDoc,
+    }))
+
+    render(<MindMapView />)
+
+    expect(screen.getByLabelText('导图布局策略')).toHaveValue('radial-mindmap')
+
+    fireEvent.click(screen.getByRole('button', { name: '自动整理' }))
+
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toMatchObject({
+      engineVersion: 2,
+      strategy: 'radial-mindmap',
+    })
+    confirmSpy.mockRestore()
+  })
+
+  it('keeps a manually selected strategy after restoring a saved radial strategy', () => {
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        experimentalMindMapLayoutEngine: true,
+      },
+    }))
+    useDocumentStore.setState((state) => ({
+      currentDoc: state.currentDoc
+        ? {
+          ...state.currentDoc,
+          mindMapLayout: {
+            engineVersion: 2,
+            strategy: 'radial-mindmap',
+            nodes: {},
+          },
+        }
+        : state.currentDoc,
+    }))
+
+    render(<MindMapView />)
+
+    const strategySelect = screen.getByLabelText('导图布局策略')
+    expect(strategySelect).toHaveValue('radial-mindmap')
+
+    fireEvent.change(strategySelect, { target: { value: 'balanced-mindmap' } })
+
+    expect(strategySelect).toHaveValue('balanced-mindmap')
   })
 
   it('collapses and restores one branch side from the side handle in balanced layout', async () => {

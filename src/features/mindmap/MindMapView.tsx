@@ -48,6 +48,7 @@ import {
 import {
   createMindMapLayoutState,
   DEFAULT_MIND_MAP_LAYOUT_STRATEGY,
+  SUPPORTED_MIND_MAP_LAYOUT_STRATEGIES,
 } from './mindMapLayoutState'
 import type { MindMapLayoutStrategy, OutlineNode } from '../../types/document'
 import type { AgentInsertionPreview } from '../agent/agentTypes'
@@ -71,6 +72,12 @@ const nodeTypes = {
 
 const REORGANIZE_CHILD_PREVIEW_GAP = 32
 const AGENT_INSERTION_NODE_PREFIX = 'agent-insertion-preview:'
+
+function isSupportedMindMapLayoutStrategy(strategy: string): strategy is MindMapLayoutStrategy {
+  return SUPPORTED_MIND_MAP_LAYOUT_STRATEGIES.includes(
+    strategy as typeof SUPPORTED_MIND_MAP_LAYOUT_STRATEGIES[number],
+  )
+}
 
 const isTextInputTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) return false
@@ -103,6 +110,7 @@ export const MindMapView: React.FC = () => {
   const [editing, setEditing] = React.useState<MindMapEditingState | null>(null)
   const [mode, setMode] = React.useState<MindMapMode>('layout')
   const [layoutStrategy, setLayoutStrategy] = React.useState<MindMapLayoutStrategy>(DEFAULT_MIND_MAP_LAYOUT_STRATEGY)
+  const restoredStrategyDocumentIdRef = React.useRef<string | null>(null)
   const [collapsedBranchSides, setCollapsedBranchSides] = React.useState<Set<string>>(new Set())
   const [exportClean, setExportClean] = React.useState(false)
   const [feedback, setFeedback] = React.useState<string | null>(null)
@@ -209,6 +217,7 @@ export const MindMapView: React.FC = () => {
     const root = graphRootNode ?? currentDoc?.root
     if (!root || exportClean || agentPreview.insertionsByParentId.size === 0) return root ?? null
 
+    // Agent 插入预览需要临时混入待插入节点，让布局和连线能按最终树形提前展示。
     return createAgentInsertionPreviewRoot(root, agentPreview.insertionsByParentId)
   }, [agentPreview.insertionsByParentId, currentDoc?.root, exportClean, graphRootNode])
 
@@ -271,12 +280,37 @@ export const MindMapView: React.FC = () => {
   }, [experimentalLayoutEnabled, layoutStrategy])
 
   React.useEffect(() => {
+    const savedStrategy = currentDoc?.mindMapLayout?.strategy
+    if (
+      !currentDoc
+      || !experimentalLayoutEnabled
+      || !savedStrategy
+      || savedStrategy === layoutStrategy
+      || !isSupportedMindMapLayoutStrategy(savedStrategy)
+      || restoredStrategyDocumentIdRef.current === currentDoc.id
+    ) {
+      return
+    }
+
+    restoredStrategyDocumentIdRef.current = currentDoc.id
+    setLayoutStrategy(savedStrategy)
+  }, [currentDoc, currentDoc?.id, currentDoc?.mindMapLayout?.strategy, experimentalLayoutEnabled, layoutStrategy])
+
+  const handleStrategyChange = React.useCallback((strategy: MindMapLayoutStrategy) => {
+    if (currentDoc) {
+      restoredStrategyDocumentIdRef.current = currentDoc.id
+    }
+    setLayoutStrategy(strategy)
+  }, [currentDoc])
+
+  React.useEffect(() => {
     if (!currentDoc) return
 
     const activeStrategy = experimentalLayoutEnabled ? layoutStrategy : DEFAULT_MIND_MAP_LAYOUT_STRATEGY
     const layoutRoot = previewLayoutRoot ?? graphRootNode ?? currentDoc.root
     const rawGraph = outlineToGraph(layoutRoot, collapsedNodeIds, undefined)
     const nodeSizes = buildMindMapNodeSizes(layoutRoot, measuredNodeSizes)
+    // 先生成含预览节点的图，再统一交给布局引擎，避免预览节点绕过折叠、聚焦和搜索状态。
     const graphWithAgentInsertions = attachAgentInsertionPreviewGraphData(
       rawGraph,
       agentPreview.insertionsByParentId,
@@ -341,6 +375,7 @@ export const MindMapView: React.FC = () => {
       initialLayouted.edges,
       collapsedBranchSides,
     )
+    // 分支侧折叠依赖第一次布局后的连线方向，过滤节点后需要重新布局以收拢剩余分支。
     const layouted = sideFilteredGraph === layoutInput.graphData
       ? initialLayouted
       : layoutMindMap({
@@ -439,6 +474,7 @@ export const MindMapView: React.FC = () => {
       return currentNodes.map((node) => {
         const basePosition = sourcePositions?.get(node.id) ?? node.position
         const shouldShiftForChildPreview = previewTarget !== null && previewDescendantIds.has(node.id)
+        // 子节点投放预览会临时推开目标子树，给用户留出“将成为父子关系”的空间提示。
         const nextPosition = draggedNode?.id === node.id
           ? draggedNode.position
           : shouldShiftForChildPreview
@@ -546,6 +582,7 @@ export const MindMapView: React.FC = () => {
 
     const descendantIds = getNodeDescendantIds(draggedNode.id)
     const existingNode = nodes.find((node) => node.id === draggedNode.id)
+    // 自由布局模式下拖动父节点时，同步平移其后代，保持用户手动整理出的局部结构。
     const delta = existingNode
       ? {
         x: draggedNode.position.x - existingNode.position.x,
@@ -750,7 +787,7 @@ export const MindMapView: React.FC = () => {
           experimentalLayoutEnabled={experimentalLayoutEnabled}
           strategy={experimentalLayoutEnabled ? layoutStrategy : DEFAULT_MIND_MAP_LAYOUT_STRATEGY}
           onModeChange={setMode}
-          onStrategyChange={setLayoutStrategy}
+          onStrategyChange={handleStrategyChange}
           onAutoLayout={handleAutoLayout}
           onToggleSearch={() => setSearchOpen((open) => !open)}
           onResetFocus={handleResetFocus}
@@ -849,6 +886,7 @@ function insertAgentInsertionPreviewChildren(
 ): OutlineNode[] {
   const next = [...children]
   insertions.forEach((insertion, offset) => {
+    // 多个插入预览按目标 index 排列，offset 用来抵消前一个预览节点已经插入造成的位置变化。
     const targetIndex = Math.max(0, Math.min(next.length, insertion.index + offset))
     next.splice(targetIndex, 0, createAgentInsertionPreviewOutlineNode(insertion, insertionsByParentId))
   })
@@ -955,6 +993,7 @@ function filterCollapsedBranchSides(
     childrenBySource.get(nodeId)?.forEach((edge) => hideSubtree(edge.target))
   }
 
+  // 左/右侧折叠以布局后的 sourceHandle 为准，因此这里从边方向反推出要隐藏的分支子树。
   edges.forEach((edge) => {
     const side = edge.sourceHandle === 'left-source' ? 'left' : edge.sourceHandle === 'right-source' ? 'right' : null
     if (!side || !collapsedBranchSides.has(createBranchSideKey(edge.source, side))) return
