@@ -7,10 +7,12 @@ import {
   CornerUpLeft,
   Edit3,
   Focus,
+  LocateFixed,
   ListPlus,
   MoveDown,
   MoveUp,
   Plus,
+  RefreshCw,
   Trash2,
 } from 'lucide-react'
 import { NodeOperationState } from './documentStore'
@@ -41,6 +43,8 @@ interface NodeContextMenuProps {
   operationState: NodeOperationState
   onAction: (action: NodeMenuAction) => void
   onFocusBranch?: () => void
+  onRelayoutBranch?: () => void
+  onUnlockNode?: () => void
 }
 
 const actionIcons: Record<NodeMenuAction, React.ReactNode> = {
@@ -63,6 +67,8 @@ export const NodeContextMenu: React.FC<NodeContextMenuProps> = ({
   operationState,
   onAction,
   onFocusBranch,
+  onRelayoutBranch,
+  onUnlockNode,
 }) => {
   const items: Array<{ action: NodeMenuAction; label: string; disabled: boolean; danger?: boolean }> = [
     { action: 'insertSibling', label: '新增同级节点', disabled: !operationState.canInsertSibling },
@@ -123,6 +129,26 @@ export const NodeContextMenu: React.FC<NodeContextMenuProps> = ({
         >
           <Focus className="h-3.5 w-3.5" />
           <span className="truncate">聚焦此分支</span>
+        </button>
+      )}
+      {onRelayoutBranch && (
+        <button
+          role="menuitem"
+          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-zinc-700 transition hover:bg-amber-100/60"
+          onClick={onRelayoutBranch}
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          <span className="truncate">重排当前分支</span>
+        </button>
+      )}
+      {onUnlockNode && (
+        <button
+          role="menuitem"
+          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-zinc-700 transition hover:bg-amber-100/60"
+          onClick={onUnlockNode}
+        >
+          <LocateFixed className="h-3.5 w-3.5" />
+          <span className="truncate">解锁当前节点</span>
         </button>
       )}
     </div>

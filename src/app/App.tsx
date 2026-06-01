@@ -212,10 +212,10 @@ export const App: React.FC = () => {
   }
 
   const viewSwitcher = (
-    <div className="flex items-center gap-0.5 rounded-md border border-zinc-200/70 bg-zinc-100/80 p-0.5 shadow-sm dark:border-zinc-700/60 dark:bg-zinc-800/80">
+    <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-zinc-200/70 bg-zinc-100/80 p-0.5 shadow-sm dark:border-zinc-700/60 dark:bg-zinc-800/80">
       <button
         onClick={() => setViewMode('outline')}
-        className={`flex items-center gap-1.5 rounded-[4px] px-3 py-1 text-xs font-medium tracking-wide transition-all ${
+        className={`flex items-center gap-1.5 whitespace-nowrap rounded-[4px] px-3 py-1 text-xs font-medium tracking-wide transition-all ${
           viewMode === 'outline'
             ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
             : 'text-zinc-500 hover:bg-zinc-200/50 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-700/50 dark:hover:text-zinc-200'
@@ -226,7 +226,7 @@ export const App: React.FC = () => {
       </button>
       <button
         onClick={() => setViewMode('mindmap')}
-        className={`flex items-center gap-1.5 rounded-[4px] px-3 py-1 text-xs font-medium tracking-wide transition-all ${
+        className={`flex items-center gap-1.5 whitespace-nowrap rounded-[4px] px-3 py-1 text-xs font-medium tracking-wide transition-all ${
           viewMode === 'mindmap'
             ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
             : 'text-zinc-500 hover:bg-zinc-200/50 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-700/50 dark:hover:text-zinc-200'
@@ -237,7 +237,7 @@ export const App: React.FC = () => {
       </button>
       <button
         onClick={() => setViewMode('split')}
-        className={`flex items-center gap-1.5 rounded-[4px] px-3 py-1 text-xs font-medium tracking-wide transition-all ${
+        className={`flex items-center gap-1.5 whitespace-nowrap rounded-[4px] px-3 py-1 text-xs font-medium tracking-wide transition-all ${
           viewMode === 'split'
             ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
             : 'text-zinc-500 hover:bg-zinc-200/50 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-700/50 dark:hover:text-zinc-200'
@@ -260,17 +260,17 @@ export const App: React.FC = () => {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.16 }}
-          className="flex h-12 items-center justify-between border-b border-zinc-200/60 dark:border-zinc-800/60 bg-white/60 dark:bg-zinc-900/60 backdrop-blur-md px-4 shrink-0 z-10"
+          className="grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 overflow-hidden border-b border-zinc-200/60 bg-white/60 px-4 backdrop-blur-md dark:border-zinc-800/60 dark:bg-zinc-900/60 z-10"
         >
-          <div className="flex-1 flex items-center justify-start">
-            <div className="text-sm font-medium text-zinc-600 px-2 cursor-default">Siwei Workspace</div>
+          <div className="flex min-w-0 items-center justify-start overflow-hidden">
+            <div className="cursor-default truncate px-2 text-sm font-medium text-zinc-600">Siwei Workspace</div>
           </div>
 
-          <div className="flex-1 flex items-center justify-center">
+          <div className="flex min-w-0 items-center justify-center overflow-hidden">
             {viewSwitcher}
           </div>
 
-          <div className="flex-1 flex items-center justify-end gap-1.5">
+          <div className="flex min-w-0 items-center justify-end gap-1.5 overflow-hidden">
             <button
               onClick={undo}
               disabled={!canUndo}

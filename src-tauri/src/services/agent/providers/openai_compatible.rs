@@ -142,8 +142,12 @@ pub fn to_openai_tools(tools: &[AgentToolDefinition]) -> Vec<Value> {
 mod tests {
     use serde_json::json;
 
-    use crate::services::agent::tools::{openai_tool_name, siwei_tool_definitions, TOOL_LIBRARY_SEARCH};
     use crate::services::agent::protocol::{AgentStopReason, AgentStreamEvent};
+    use crate::services::agent::tools::{
+        openai_tool_name, siwei_tool_definitions, TOOL_LIBRARY_SEARCH,
+        TOOL_MINDMAP_DELETE_NODES, TOOL_MINDMAP_MOVE_NODES, TOOL_MINDMAP_READ_SUBTREE,
+        TOOL_MINDMAP_UPDATE_NODES,
+    };
 
     use super::{to_openai_tools, OpenAiStreamParser};
 
@@ -282,5 +286,15 @@ mod tests {
             tool["function"]["name"] == "mindmap_insert_nodes"
                 && tool["function"]["description"].as_str().is_some()
         }));
+        for name in [
+            TOOL_MINDMAP_UPDATE_NODES,
+            TOOL_MINDMAP_MOVE_NODES,
+            TOOL_MINDMAP_DELETE_NODES,
+            TOOL_MINDMAP_READ_SUBTREE,
+        ] {
+            assert!(tools
+                .iter()
+                .any(|tool| tool["function"]["name"] == openai_tool_name(name)));
+        }
     }
 }

@@ -274,7 +274,7 @@ describe('MindMapView', () => {
     expect(screen.queryByDisplayValue('空白节点')).not.toBeInTheDocument()
   })
 
-  it('commits node position changes in layout mode', () => {
+  it('commits node position changes in layout mode without locking descendants', () => {
     render(<MindMapView />)
 
     fireEvent.dragEnd(screen.getByTestId('flow-node-node-2'))
@@ -283,6 +283,9 @@ describe('MindMapView', () => {
       position: { x: 333, y: 222 },
       source: 'manual',
       locked: true,
+    })
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.nodes['node-1-1']).toMatchObject({
+      locked: false,
     })
     expect(useDocumentStore.getState().isDirty).toBe(true)
     expect(screen.getByText('布局已更新')).toBeInTheDocument()
@@ -539,7 +542,7 @@ describe('MindMapView', () => {
     expect(screen.getByRole('option', { name: '径向' })).toHaveValue('radial-mindmap')
   })
 
-  it('saves radial layout state with engine version 2 from auto layout', () => {
+  it('saves radial layout state with engine version 3 from auto layout', () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     useSettingsStore.setState((state) => ({
       settings: {
@@ -553,7 +556,7 @@ describe('MindMapView', () => {
     fireEvent.click(screen.getByRole('button', { name: '自动整理' }))
 
     expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toMatchObject({
-      engineVersion: 2,
+      engineVersion: 3,
       strategy: 'radial-mindmap',
     })
     confirmSpy.mockRestore()
@@ -587,7 +590,7 @@ describe('MindMapView', () => {
     fireEvent.click(screen.getByRole('button', { name: '自动整理' }))
 
     expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toMatchObject({
-      engineVersion: 2,
+      engineVersion: 3,
       strategy: 'radial-mindmap',
     })
     confirmSpy.mockRestore()
@@ -782,6 +785,109 @@ describe('MindMapView', () => {
     render(<MindMapView />)
 
     expect(screen.queryByRole('button', { name: '导出导图' })).not.toBeInTheDocument()
+  })
+
+  it('shows free-canvas, force preview, and diagnostics only when experiments are enabled', () => {
+    render(<MindMapView />)
+
+    expect(screen.queryByRole('option', { name: '自由画布' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '力导向预览' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '布局诊断' })).not.toBeInTheDocument()
+    cleanup()
+
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        experimentalMindMapLayoutEngine: true,
+      },
+    }))
+
+    render(<MindMapView />)
+
+    expect(screen.getByRole('option', { name: '自由画布' })).toHaveValue('free-canvas')
+    expect(screen.getByRole('button', { name: '力导向预览' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '布局诊断' })).toBeInTheDocument()
+  })
+
+  it('cancels force-directed preview without persisting and applies only when requested', async () => {
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        experimentalMindMapLayoutEngine: true,
+      },
+    }))
+    render(<MindMapView />)
+    fireEvent.change(screen.getByLabelText('导图布局策略'), { target: { value: 'free-canvas' } })
+
+    const beforeLayout = useDocumentStore.getState().currentDoc?.mindMapLayout
+    fireEvent.click(screen.getByRole('button', { name: '力导向预览' }))
+
+    expect(screen.getByRole('button', { name: '应用力导向布局' })).toBeInTheDocument()
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toBe(beforeLayout)
+
+    fireEvent.click(screen.getByRole('button', { name: '取消力导向预览' }))
+    expect(screen.queryByRole('button', { name: '应用力导向布局' })).not.toBeInTheDocument()
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toBe(beforeLayout)
+
+    fireEvent.click(screen.getByRole('button', { name: '力导向预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '应用力导向布局' }))
+
+    await waitFor(() => expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.nodes['node-2'].source).toBe('force-applied'))
+  })
+
+  it('freezes drag and structural context actions during force-directed preview', () => {
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        experimentalMindMapLayoutEngine: true,
+      },
+    }))
+    render(<MindMapView />)
+
+    fireEvent.click(screen.getByRole('button', { name: '力导向预览' }))
+
+    expect(screen.getByTestId('react-flow')).toHaveAttribute('data-nodes-draggable', 'false')
+    fireEvent.contextMenu(screen.getByTestId('flow-node-node-1'))
+    expect(screen.queryByRole('menuitem', { name: '重排当前分支' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: '解锁当前节点' })).not.toBeInTheDocument()
+  })
+
+  it('relayouts a branch and unlocks a node from experimental mind map menu', async () => {
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        experimentalMindMapLayoutEngine: true,
+      },
+    }))
+    useDocumentStore.setState((state) => ({
+      currentDoc: state.currentDoc
+        ? {
+          ...state.currentDoc,
+          mindMapLayout: {
+            engineVersion: 3,
+            strategy: 'free-canvas',
+            nodes: {
+              root: { position: { x: 0, y: 0 }, source: 'manual', locked: true },
+              'node-1': { position: { x: 100, y: 100 }, source: 'manual', locked: true },
+              'node-1-1': { position: { x: 900, y: 900 }, source: 'manual', locked: false },
+              'node-2': { position: { x: 300, y: 100 }, source: 'manual', locked: true },
+            },
+          },
+        }
+        : state.currentDoc,
+    }))
+    render(<MindMapView />)
+
+    fireEvent.contextMenu(screen.getByTestId('flow-node-node-1'))
+    fireEvent.click(screen.getByRole('menuitem', { name: '重排当前分支' }))
+
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.nodes['node-1-1'].source).toBe('incremental')
+    expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.nodes['node-1-1'].position).not.toEqual({ x: 900, y: 900 })
+
+    fireEvent.contextMenu(screen.getByTestId('flow-node-node-1'))
+    fireEvent.click(screen.getByRole('menuitem', { name: '解锁当前节点' }))
+
+    await waitFor(() => expect(useDocumentStore.getState().currentDoc?.mindMapLayout?.nodes['node-1'].locked).toBe(false))
   })
 
 })

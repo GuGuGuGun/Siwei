@@ -13,8 +13,14 @@ export interface MindMapLayoutPosition {
   y: number
 }
 
-export type MindMapLayoutStrategy = 'classic-dagre' | 'balanced-mindmap' | 'radial-mindmap' | (string & {})
-export type MindMapLayoutNodeSource = 'auto' | 'manual'
+export type MindMapLayoutStrategy =
+  | 'classic-dagre'
+  | 'balanced-mindmap'
+  | 'radial-mindmap'
+  | 'free-canvas'
+  | 'force-directed'
+  | (string & {})
+export type MindMapLayoutNodeSource = 'auto' | 'manual' | 'incremental' | 'force-applied'
 
 export interface MindMapLayoutState {
   engineVersion: number

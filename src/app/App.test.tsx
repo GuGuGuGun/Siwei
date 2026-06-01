@@ -71,6 +71,11 @@ vi.mock('../services/siweiApi', () => ({
 
 vi.mock('reactflow', async () => {
   const React = await import('react')
+  const setNodes = vi.fn()
+  const onNodesChange = vi.fn()
+  const setEdges = vi.fn()
+  const onEdgesChange = vi.fn()
+
   return {
     __esModule: true,
     default: ({ children }: { children?: React.ReactNode }) => <div data-testid="react-flow">{children}</div>,
@@ -79,10 +84,22 @@ vi.mock('reactflow', async () => {
     MiniMap: () => <div />,
     Controls: () => <div />,
     Background: () => <div />,
-    useNodesState: () => [[], vi.fn(), vi.fn()],
-    useEdgesState: () => [[], vi.fn(), vi.fn()],
+    useNodesState: () => [[], setNodes, onNodesChange],
+    useEdgesState: () => [[], setEdges, onEdgesChange],
   }
 })
+
+vi.mock('../features/library/LibraryWorkspace', () => ({
+  LibraryWorkspace: () => <section data-testid="library-workspace" />,
+}))
+
+vi.mock('../features/settings/SettingsPage', () => ({
+  SettingsPage: () => <section data-testid="settings-page" />,
+}))
+
+vi.mock('../features/agent/AgentPanel', () => ({
+  AgentPanel: () => <aside data-testid="agent-panel" />,
+}))
 
 describe('App', () => {
   beforeEach(() => {
@@ -173,6 +190,20 @@ describe('App', () => {
     await waitFor(() => {
       expect(api.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ focusMode: false }))
     })
+  })
+
+  it('keeps the windowed view switcher from wrapping inside the top toolbar', async () => {
+    render(<App />)
+
+    const outlineButton = await screen.findByRole('button', { name: '大纲' })
+    const mindMapButton = screen.getByRole('button', { name: '思维导图' })
+    const splitButton = screen.getByRole('button', { name: '分屏' })
+    const switcher = outlineButton.parentElement
+
+    expect(switcher).toHaveClass('shrink-0')
+    expect(outlineButton).toHaveClass('whitespace-nowrap')
+    expect(mindMapButton).toHaveClass('whitespace-nowrap')
+    expect(splitButton).toHaveClass('whitespace-nowrap')
   })
 
   it('suppresses the browser default context menu', async () => {

@@ -72,7 +72,7 @@ async fn run_openai_turn(app: &tauri::AppHandle, request: AgentRuntimeRequest) -
         // OpenAI 工具调用需要把 assistant tool_calls 与每个 tool 结果都写回历史，模型才能继续生成最终答复。
         messages.push(openai_assistant_tool_call_message(&outcome.tool_calls));
         for call in outcome.tool_calls {
-            let result = execute_tool_call(app, &call)?;
+            let result = execute_tool_call(app, &call, &request.document_context)?;
             messages.push(openai_tool_result_message(&call, result));
         }
     }
@@ -149,7 +149,11 @@ async fn run_claude_turn(app: &tauri::AppHandle, request: AgentRuntimeRequest) -
 
         // Claude 协议要求 tool_result 作为下一条 user 消息返回，因此与 OpenAI 的历史结构分开构造。
         messages.push(claude_assistant_tool_call_message(&outcome.tool_calls));
-        messages.push(claude_tool_result_message(app, &outcome.tool_calls)?);
+        messages.push(claude_tool_result_message(
+            app,
+            &outcome.tool_calls,
+            &request.document_context,
+        )?);
     }
 
     Err(AppError::Validation(
@@ -240,20 +244,39 @@ fn collect_and_emit_stream_event(
     Ok(())
 }
 
-fn execute_tool_call(app: &tauri::AppHandle, call: &AgentToolCall) -> AppResult<Value> {
+fn execute_tool_call(
+    app: &tauri::AppHandle,
+    call: &AgentToolCall,
+    document_context: &AgentDocumentContext,
+) -> AppResult<Value> {
     let canonical_name = canonical_tool_name(&call.name);
     let method = match canonical_name {
         "mindmap.insert_nodes" => "mindmap.insert_nodes",
+        "mindmap.update_nodes" => "mindmap.update_nodes",
+        "mindmap.move_nodes" => "mindmap.move_nodes",
+        "mindmap.delete_nodes" => "mindmap.delete_nodes",
+        "mindmap.read_subtree" => "mindmap.read_subtree",
         "library.list" => "library.list",
         "library.search" => "library.search",
         other => other,
     };
+    let mut arguments = call.arguments.clone();
+    if method == "mindmap.read_subtree" {
+        if let Some(object) = arguments.as_object_mut() {
+            object.insert(
+                "documentContext".to_string(),
+                serde_json::to_value(document_context).map_err(|error| {
+                    AppError::JsonParse(format!("序列化当前文档上下文失败: {error}"))
+                })?,
+            );
+        }
+    }
     // Runtime 只负责桥接工具调用，具体只读文档库和脑图写入校验仍由 agent_service 统一处理。
     let response = agent_service::handle_tool_request(
         app,
         call.id.clone(),
         method.to_string(),
-        call.arguments.clone(),
+        arguments,
     );
 
     if let Some(error) = response
@@ -326,11 +349,12 @@ fn claude_assistant_tool_call_message(tool_calls: &[AgentToolCall]) -> Value {
 fn claude_tool_result_message(
     app: &tauri::AppHandle,
     tool_calls: &[AgentToolCall],
+    document_context: &AgentDocumentContext,
 ) -> AppResult<Value> {
     let mut content = Vec::new();
 
     for call in tool_calls {
-        let result = execute_tool_call(app, call)?;
+        let result = execute_tool_call(app, call, document_context)?;
         content.push(json!({
             "type": "tool_result",
             "tool_use_id": call.id,

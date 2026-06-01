@@ -132,8 +132,11 @@ pub fn to_claude_tools(tools: &[AgentToolDefinition]) -> Vec<Value> {
 mod tests {
     use serde_json::json;
 
-    use crate::services::agent::tools::{siwei_tool_definitions, TOOL_MINDMAP_INSERT_NODES};
     use crate::services::agent::protocol::{AgentStopReason, AgentStreamEvent};
+    use crate::services::agent::tools::{
+        siwei_tool_definitions, TOOL_MINDMAP_DELETE_NODES, TOOL_MINDMAP_INSERT_NODES,
+        TOOL_MINDMAP_MOVE_NODES, TOOL_MINDMAP_READ_SUBTREE, TOOL_MINDMAP_UPDATE_NODES,
+    };
 
     use super::{to_claude_tools, ClaudeStreamParser};
 
@@ -221,5 +224,13 @@ mod tests {
             insert_nodes["input_schema"]["required"],
             json!(["documentId", "snapshotKey", "parentNodeId", "nodes"])
         );
+        for name in [
+            TOOL_MINDMAP_UPDATE_NODES,
+            TOOL_MINDMAP_MOVE_NODES,
+            TOOL_MINDMAP_DELETE_NODES,
+            TOOL_MINDMAP_READ_SUBTREE,
+        ] {
+            assert!(tools.iter().any(|tool| tool["name"] == name));
+        }
     }
 }

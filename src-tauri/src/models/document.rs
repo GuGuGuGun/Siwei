@@ -60,6 +60,9 @@ pub struct MindMapLayoutNodeState {
 pub enum MindMapLayoutNodeSource {
     Auto,
     Manual,
+    Incremental,
+    #[serde(rename = "force-applied")]
+    ForceApplied,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -138,7 +141,7 @@ impl MindMapLayoutState {
                 nodes,
             },
             MindMapLayoutState::Legacy(positions) => MindMapLayoutState::V1 {
-                engine_version: 2,
+                engine_version: 3,
                 strategy: MindMapLayoutStrategy::classic_dagre(),
                 nodes: positions
                     .into_iter()
@@ -147,8 +150,8 @@ impl MindMapLayoutState {
                             node_id,
                             MindMapLayoutNodeState {
                                 position,
-                                source: MindMapLayoutNodeSource::Manual,
-                                locked: true,
+                                source: MindMapLayoutNodeSource::Auto,
+                                locked: false,
                                 updated_at: None,
                             },
                         )
@@ -169,7 +172,7 @@ impl MindMapLayoutState {
             unreachable!("layout normalization always returns v1")
         };
 
-        if engine_version == 0 {
+        if engine_version == 0 || engine_version > 3 {
             return Err(AppError::Validation(
                 "mindMapLayout.engineVersion 必须为受支持的正整数".to_string(),
             ));
@@ -402,14 +405,14 @@ mod tests {
         let mut doc = sample_doc();
         doc.version = 2;
         doc.mind_map_layout = Some(MindMapLayoutState::V1 {
-            engine_version: 2,
-            strategy: MindMapLayoutStrategy::balanced_mindmap(),
+            engine_version: 3,
+            strategy: MindMapLayoutStrategy::Unknown("free-canvas".to_string()),
             nodes: BTreeMap::from([(
                 "child_123".to_string(),
                 MindMapLayoutNodeState {
                     position: MindMapLayoutPosition { x: 120.0, y: 80.0 },
-                    source: MindMapLayoutNodeSource::Manual,
-                    locked: true,
+                    source: MindMapLayoutNodeSource::Incremental,
+                    locked: false,
                     updated_at: Some(2),
                 },
             )]),
@@ -420,16 +423,16 @@ mod tests {
         assert_eq!(
             value["mindMapLayout"],
             json!({
-                "engineVersion": 2,
-                "strategy": "balanced-mindmap",
+                "engineVersion": 3,
+                "strategy": "free-canvas",
                 "nodes": {
                     "child_123": {
                         "position": {
                             "x": 120.0,
                             "y": 80.0
                         },
-                        "source": "manual",
-                        "locked": true,
+                        "source": "incremental",
+                        "locked": false,
                         "updatedAt": 2
                     }
                 }
@@ -465,13 +468,13 @@ mod tests {
         let mut doc = sample_doc();
         doc.version = 2;
         doc.mind_map_layout = Some(MindMapLayoutState::V1 {
-            engine_version: 2,
-            strategy: MindMapLayoutStrategy::classic_dagre(),
+            engine_version: 3,
+            strategy: MindMapLayoutStrategy::Unknown("force-directed".to_string()),
             nodes: BTreeMap::from([(
                 "child_123".to_string(),
                 MindMapLayoutNodeState {
                     position: MindMapLayoutPosition { x: 120.0, y: 80.0 },
-                    source: MindMapLayoutNodeSource::Auto,
+                    source: MindMapLayoutNodeSource::ForceApplied,
                     locked: false,
                     updated_at: None,
                 },
@@ -479,6 +482,41 @@ mod tests {
         });
 
         assert!(doc.validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_unsupported_layout_engine_version_and_invalid_updated_at() {
+        let mut doc = sample_doc();
+        doc.mind_map_layout = Some(MindMapLayoutState::V1 {
+            engine_version: 4,
+            strategy: MindMapLayoutStrategy::classic_dagre(),
+            nodes: BTreeMap::new(),
+        });
+        assert!(doc
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("mindMapLayout.engineVersion"));
+
+        let mut doc = sample_doc();
+        doc.mind_map_layout = Some(MindMapLayoutState::V1 {
+            engine_version: 3,
+            strategy: MindMapLayoutStrategy::classic_dagre(),
+            nodes: BTreeMap::from([(
+                "child_123".to_string(),
+                MindMapLayoutNodeState {
+                    position: MindMapLayoutPosition { x: 120.0, y: 80.0 },
+                    source: MindMapLayoutNodeSource::Auto,
+                    locked: false,
+                    updated_at: Some(0),
+                },
+            )]),
+        });
+        assert!(doc
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("updatedAt"));
     }
 
     #[test]
@@ -578,8 +616,8 @@ mod tests {
             nodes["child_123"].position,
             MindMapLayoutPosition { x: 120.0, y: 80.0 }
         );
-        assert_eq!(nodes["child_123"].source, MindMapLayoutNodeSource::Manual);
-        assert!(nodes["child_123"].locked);
+        assert_eq!(nodes["child_123"].source, MindMapLayoutNodeSource::Auto);
+        assert!(!nodes["child_123"].locked);
     }
 
     #[test]

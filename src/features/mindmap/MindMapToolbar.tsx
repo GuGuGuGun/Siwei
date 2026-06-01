@@ -1,5 +1,5 @@
 import React from 'react'
-import { GitBranch, LayoutDashboard, Move, Search, X } from 'lucide-react'
+import { Activity, GitBranch, LayoutDashboard, Move, Search, Sparkles, X } from 'lucide-react'
 import type { MindMapLayoutStrategy } from '../../types/document'
 
 export type MindMapMode = 'layout' | 'reorganize'
@@ -13,6 +13,8 @@ interface MindMapToolbarProps {
   onModeChange: (mode: MindMapMode) => void
   onStrategyChange: (strategy: MindMapLayoutStrategy) => void
   onAutoLayout: () => void
+  onForceDirectedPreview: () => void
+  onToggleDiagnostics: () => void
   onToggleSearch: () => void
   onResetFocus: () => void
 }
@@ -26,6 +28,8 @@ export const MindMapToolbar: React.FC<MindMapToolbarProps> = ({
   onModeChange,
   onStrategyChange,
   onAutoLayout,
+  onForceDirectedPreview,
+  onToggleDiagnostics,
   onToggleSearch,
   onResetFocus,
 }) => {
@@ -73,7 +77,30 @@ export const MindMapToolbar: React.FC<MindMapToolbarProps> = ({
           <option value="classic-dagre">经典</option>
           <option value="balanced-mindmap">平衡</option>
           <option value="radial-mindmap">径向</option>
+          <option value="free-canvas">自由画布</option>
         </select>
+      )}
+      {experimentalLayoutEnabled && (
+        <>
+          <button
+            type="button"
+            aria-label="力导向预览"
+            title="力导向预览"
+            onClick={onForceDirectedPreview}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-amber-50"
+          >
+            <Sparkles className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="布局诊断"
+            title="布局诊断"
+            onClick={onToggleDiagnostics}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-amber-50"
+          >
+            <Activity className="h-4 w-4" />
+          </button>
+        </>
       )}
       <button
         type="button"

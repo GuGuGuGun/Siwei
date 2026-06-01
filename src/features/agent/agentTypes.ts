@@ -202,3 +202,40 @@ export interface AgentMindMapNodeInput {
   checked?: boolean | null
   children?: AgentMindMapNodeInput[]
 }
+
+export interface AgentMindMapUpdateNodesParams {
+  documentId: string
+  snapshotKey: string
+  updates: AgentMindMapNodeUpdateInput[]
+}
+
+export interface AgentMindMapNodeUpdateInput {
+  nodeId: string
+  text?: string
+  note?: string | null
+  tags?: string[]
+  checked?: boolean | null
+}
+
+export interface AgentMindMapMoveNodesParams {
+  documentId: string
+  snapshotKey: string
+  moves: AgentMindMapNodeMoveInput[]
+}
+
+export interface AgentMindMapNodeMoveInput {
+  nodeId: string
+  targetParentNodeId: string
+  index: number
+}
+
+export interface AgentMindMapDeleteNodesParams {
+  documentId: string
+  snapshotKey: string
+  deletes: AgentMindMapNodeDeleteInput[]
+}
+
+export interface AgentMindMapNodeDeleteInput {
+  nodeId: string
+  reason?: string
+}

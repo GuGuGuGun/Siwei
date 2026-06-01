@@ -217,11 +217,11 @@ describe('documentStore', () => {
 
     expect(useDocumentStore.getState().currentDoc?.version).toBe(2)
     expect(useDocumentStore.getState().currentDoc?.mindMapLayout).toEqual({
-      engineVersion: 2,
+      engineVersion: 3,
       strategy: 'classic-dagre',
       nodes: {
-        'node-1': { position: { x: 120, y: 80 }, source: 'manual', locked: true },
-        'node-2': { position: { x: 260, y: 80 }, source: 'manual', locked: true },
+        'node-1': { position: { x: 120, y: 80 }, source: 'auto', locked: false },
+        'node-2': { position: { x: 260, y: 80 }, source: 'auto', locked: false },
       },
     })
     expect(useDocumentStore.getState().isDirty).toBe(true)
@@ -261,6 +261,36 @@ describe('documentStore', () => {
     expect(savedDoc.version).toBe(2)
     expect(savedDoc.mindMapLayout?.nodes['node-1'].position).toEqual({ x: 12, y: 34 })
     expect(useDocumentStore.getState().isDirty).toBe(false)
+  })
+
+  it('cleans orphan layout records before saving', async () => {
+    const doc = createDocument()
+    useDocumentStore.setState({
+      currentDoc: {
+        ...doc,
+        mindMapLayout: {
+          engineVersion: 3,
+          strategy: 'free-canvas',
+          nodes: {
+            root: { position: { x: 0, y: 0 }, source: 'manual', locked: true },
+            'node-1': { position: { x: 12, y: 34 }, source: 'manual', locked: true },
+            orphan: { position: { x: 999, y: 999 }, source: 'manual', locked: true },
+          },
+        },
+      },
+      collapsedNodeIds: new Set<string>(),
+      currentFilePath: 'demo.siwei.json',
+      isDirty: true,
+    })
+    apiMock.saveDocument.mockResolvedValueOnce(undefined)
+    apiMock.addRecentDoc.mockResolvedValueOnce(undefined)
+
+    const saved = await useDocumentStore.getState().saveDoc()
+
+    expect(saved).toBe(true)
+    const savedDoc = apiMock.saveDocument.mock.calls[0][1]
+    expect(savedDoc.mindMapLayout?.nodes.orphan).toBeUndefined()
+    expect(savedDoc.mindMapLayout?.nodes['node-1']).toBeDefined()
   })
 
   it('loads legacy documents without a mind map layout field', async () => {

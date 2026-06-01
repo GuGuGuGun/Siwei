@@ -30,7 +30,7 @@ import {
   moveNodeToParentIndexAtPath,
   getVisibleNodes,
 } from '../../utils/tree'
-import { normalizeMindMapLayoutState } from '../mindmap/mindMapLayoutState'
+import { normalizeMindMapLayoutState, pruneMindMapLayoutState } from '../mindmap/mindMapLayoutState'
 
 export type ViewMode = 'outline' | 'mindmap' | 'split'
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
@@ -332,7 +332,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
   }
 
   const getDocumentWithVersionForSave = (doc: OutlineDocument): OutlineDocument => {
-    const mindMapLayout = normalizeMindMapLayoutState(doc.mindMapLayout)
+    const mindMapLayout = pruneMindMapLayoutState(doc.mindMapLayout, doc.root)
     if (!mindMapLayout) return doc
     return {
       ...doc,
@@ -795,7 +795,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         ...currentDoc,
         version: Math.max(currentDoc.version, 2),
         updatedAt: Date.now(),
-        mindMapLayout: normalizedLayout,
+        mindMapLayout: pruneMindMapLayoutState(normalizedLayout, currentDoc.root),
       }
 
       set((state) => ({

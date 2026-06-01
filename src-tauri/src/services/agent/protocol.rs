@@ -100,6 +100,27 @@ fn infer_tool_name_from_arguments(arguments: &Value) -> Option<&'static str> {
     {
         return Some("mindmap_insert_nodes");
     }
+    if object.contains_key("updates")
+        && object.contains_key("documentId")
+        && object.contains_key("snapshotKey")
+    {
+        return Some("mindmap_update_nodes");
+    }
+    if object.contains_key("moves")
+        && object.contains_key("documentId")
+        && object.contains_key("snapshotKey")
+    {
+        return Some("mindmap_move_nodes");
+    }
+    if object.contains_key("deletes")
+        && object.contains_key("documentId")
+        && object.contains_key("snapshotKey")
+    {
+        return Some("mindmap_delete_nodes");
+    }
+    if object.contains_key("nodeId") && object.contains_key("documentId") {
+        return Some("mindmap_read_subtree");
+    }
     if object.contains_key("query") {
         return Some("library_search");
     }

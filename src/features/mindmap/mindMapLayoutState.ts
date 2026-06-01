@@ -5,12 +5,18 @@ import type {
   MindMapLayoutStrategy,
 } from '../../types/document'
 
-export const MIND_MAP_LAYOUT_ENGINE_VERSION = 2
+interface LayoutTreeNode {
+  id: string
+  children: LayoutTreeNode[]
+}
+
+export const MIND_MAP_LAYOUT_ENGINE_VERSION = 3
 export const DEFAULT_MIND_MAP_LAYOUT_STRATEGY: MindMapLayoutStrategy = 'classic-dagre'
 export const SUPPORTED_MIND_MAP_LAYOUT_STRATEGIES = [
   'classic-dagre',
   'balanced-mindmap',
   'radial-mindmap',
+  'free-canvas',
 ] as const
 
 export type LegacyMindMapLayoutState = Record<string, MindMapLayoutPosition>
@@ -29,14 +35,26 @@ export function normalizeMindMapLayoutState(
   strategy: MindMapLayoutStrategy = DEFAULT_MIND_MAP_LAYOUT_STRATEGY,
 ): MindMapLayoutState | undefined {
   if (!layout) return undefined
-  if (isMindMapLayoutState(layout)) return layout
+  if (isMindMapLayoutState(layout)) {
+    return {
+      ...layout,
+      engineVersion: MIND_MAP_LAYOUT_ENGINE_VERSION,
+      nodes: Object.fromEntries(
+        Object.entries(layout.nodes).map(([nodeId, state]) => [nodeId, {
+          ...state,
+          source: state.source ?? 'auto',
+          locked: Boolean(state.locked),
+        }]),
+      ),
+    }
+  }
 
   const nodes = Object.entries(layout).reduce<Record<string, MindMapLayoutNodeState>>((next, [nodeId, position]) => {
     if (!position || typeof position.x !== 'number' || typeof position.y !== 'number') return next
     next[nodeId] = {
       position,
-      source: 'manual',
-      locked: true,
+      source: 'auto',
+      locked: false,
     }
     return next
   }, {})
@@ -88,5 +106,27 @@ export function createMindMapLayoutState(
       }
       return next
     }, {})
+  }
+}
+
+export function pruneMindMapLayoutState(
+  layout: MindMapLayoutState | LegacyMindMapLayoutState | undefined,
+  root: LayoutTreeNode,
+): MindMapLayoutState | undefined {
+  const normalized = normalizeMindMapLayoutState(layout)
+  if (!normalized) return undefined
+
+  const nodeIds = new Set<string>()
+  const visit = (node: LayoutTreeNode) => {
+    nodeIds.add(node.id)
+    node.children.forEach(visit)
+  }
+  visit(root)
+
+  return {
+    ...normalized,
+    nodes: Object.fromEntries(
+      Object.entries(normalized.nodes).filter(([nodeId]) => nodeIds.has(nodeId)),
+    ),
   }
 }

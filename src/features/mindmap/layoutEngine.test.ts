@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { createNode } from '../../test/fixtures'
 import { outlineToGraph } from './outlineToGraph'
-import { estimateMindMapNodeSize, layoutMindMap } from './layoutEngine'
+import {
+  applyForceDirectedLayoutPreview,
+  estimateMindMapNodeSize,
+  layoutMindMap,
+  relayoutMindMapBranch,
+} from './layoutEngine'
 import type { MindMapLayoutState } from '../../types/document'
 
 describe('layoutMindMap', () => {
@@ -30,7 +35,7 @@ describe('layoutMindMap', () => {
 
     expect(result.nodes).toHaveLength(graphData.nodes.length)
     expect(result.layoutState).toMatchObject({
-      engineVersion: 2,
+      engineVersion: 3,
       strategy: 'classic-dagre',
     })
     expect(result.layoutState?.nodes.root.position).toEqual(result.nodes.find((node) => node.id === 'root')?.position)
@@ -191,7 +196,7 @@ describe('layoutMindMap', () => {
       second.nodes.map((node) => [node.id, node.position]),
     )
     expect(first.layoutState).toMatchObject({
-      engineVersion: 2,
+      engineVersion: 3,
       strategy: 'radial-mindmap',
     })
   })
@@ -277,6 +282,140 @@ describe('layoutMindMap', () => {
 
     expect(estimateMindMapNodeSize(rich).width).toBeGreaterThan(estimateMindMapNodeSize(plain).width)
     expect(estimateMindMapNodeSize(rich).height).toBeGreaterThan(estimateMindMapNodeSize(plain).height)
+  })
+
+  it('keeps free-canvas positions and deterministically places new nodes near their parent', () => {
+    const freeRoot = createNode('root', 'Root', [
+      createNode('parent', 'Parent', [
+        createNode('existing', 'Existing'),
+        createNode('new-child', 'New Child'),
+      ]),
+    ])
+    const persistedLayout: MindMapLayoutState = {
+      engineVersion: 3,
+      strategy: 'free-canvas',
+      nodes: {
+        root: { position: { x: 0, y: 0 }, source: 'manual', locked: true },
+        parent: { position: { x: 320, y: 40 }, source: 'manual', locked: true },
+        existing: { position: { x: 620, y: 20 }, source: 'manual', locked: true },
+      },
+    }
+    const input = {
+      root: freeRoot,
+      graphData: outlineToGraph(freeRoot, new Set()),
+      collapsedNodeIds: new Set<string>(),
+      strategy: 'free-canvas' as const,
+      persistedLayout,
+      nodeSizes: {},
+      mode: 'persistent' as const,
+    }
+
+    const first = layoutMindMap(input)
+    const second = layoutMindMap(input)
+
+    expect(first.nodes.find((node) => node.id === 'parent')?.position).toEqual({ x: 320, y: 40 })
+    expect(first.layoutState?.nodes['new-child']).toMatchObject({
+      source: 'incremental',
+      locked: false,
+    })
+    expect(first.layoutState?.nodes['new-child'].position.x).toBeGreaterThan(320)
+    expect(first.layoutState?.nodes['new-child'].position).toEqual(second.layoutState?.nodes['new-child'].position)
+  })
+
+  it('relayouts only unlocked descendants by default', () => {
+    const branchRoot = createNode('root', 'Root', [
+      createNode('branch', 'Branch', [
+        createNode('locked-child', 'Locked'),
+        createNode('free-child', 'Free'),
+      ]),
+    ])
+    const persistedLayout: MindMapLayoutState = {
+      engineVersion: 3,
+      strategy: 'free-canvas',
+      nodes: {
+        root: { position: { x: 0, y: 0 }, source: 'manual', locked: true },
+        branch: { position: { x: 100, y: 100 }, source: 'manual', locked: true },
+        'locked-child': { position: { x: 900, y: 900 }, source: 'manual', locked: true },
+        'free-child': { position: { x: 10, y: 10 }, source: 'manual', locked: false },
+      },
+    }
+
+    const next = relayoutMindMapBranch({
+      root: branchRoot,
+      branchRootId: 'branch',
+      layout: persistedLayout,
+      nodeSizes: {},
+      strategy: 'free-canvas',
+    })
+
+    expect(next.nodes.branch.position).toEqual({ x: 100, y: 100 })
+    expect(next.nodes['locked-child'].position).toEqual({ x: 900, y: 900 })
+    expect(next.nodes['free-child'].position).not.toEqual({ x: 10, y: 10 })
+    expect(next.nodes['free-child'].source).toBe('incremental')
+  })
+
+  it('creates deterministic force-directed previews and applies only unlocked nodes', () => {
+    const forceRoot = createNode('root', 'Root', [
+      createNode('locked', 'Locked'),
+      createNode('free', 'Free'),
+    ])
+    const persistedLayout: MindMapLayoutState = {
+      engineVersion: 3,
+      strategy: 'free-canvas',
+      nodes: {
+        root: { position: { x: 0, y: 0 }, source: 'manual', locked: true },
+        locked: { position: { x: 100, y: 100 }, source: 'manual', locked: true },
+        free: { position: { x: 200, y: 200 }, source: 'manual', locked: false },
+      },
+    }
+
+    const first = applyForceDirectedLayoutPreview({
+      root: forceRoot,
+      layout: persistedLayout,
+      nodeSizes: {},
+      params: { strength: 2, spread: 2, quality: 2 },
+      mode: 'preview',
+    })
+    const second = applyForceDirectedLayoutPreview({
+      root: forceRoot,
+      layout: persistedLayout,
+      nodeSizes: {},
+      params: { strength: 2, spread: 2, quality: 2 },
+      mode: 'preview',
+    })
+    const applied = applyForceDirectedLayoutPreview({
+      root: forceRoot,
+      layout: persistedLayout,
+      nodeSizes: {},
+      params: { strength: 2, spread: 2, quality: 2 },
+      mode: 'apply',
+    })
+
+    expect(first.layoutState).toBeUndefined()
+    expect(first.nodes.map((node) => [node.id, node.position])).toEqual(
+      second.nodes.map((node) => [node.id, node.position]),
+    )
+    expect(first.nodes.find((node) => node.id === 'locked')?.position).toEqual({ x: 100, y: 100 })
+    expect(applied.layoutState?.nodes.locked).toMatchObject({ position: { x: 100, y: 100 }, locked: true })
+    expect(applied.layoutState?.nodes.free.source).toBe('force-applied')
+  })
+
+  it('returns structured diagnostics for layout coverage and coordinate quality', () => {
+    const result = layoutMindMap({
+      root,
+      graphData: outlineToGraph(root, new Set()),
+      collapsedNodeIds: new Set(),
+      strategy: 'balanced-mindmap',
+      nodeSizes: {},
+      mode: 'persistent',
+    })
+
+    expect(result.diagnostics).toMatchObject({
+      strategy: 'balanced-mindmap',
+      nodeCount: result.nodes.length,
+      positionedCount: result.nodes.length,
+      missingPositionCount: 0,
+    })
   })
 })
 

@@ -6,8 +6,11 @@ import type {
   AgentChangePlan,
   AgentChatMessage,
   AgentInsertedNode,
+  AgentMindMapDeleteNodesParams,
   AgentMindMapInsertNodesParams,
+  AgentMindMapMoveNodesParams,
   AgentMindMapNodeInput,
+  AgentMindMapUpdateNodesParams,
   AgentRpcEventRecord,
   AgentStatus,
 } from './agentTypes'
@@ -206,6 +209,36 @@ const setInternalHandler = () => {
           return
         }
 
+        if (record.type === 'tool_result' && record.toolName === 'mindmap_update_nodes') {
+          handleToolPlanResult(
+            record.params,
+            normalizeMindMapUpdateNodesParams,
+            createMindMapUpdatePlan,
+            (params) => `待确认更新 ${params.updates.length} 个节点`,
+          )
+          return
+        }
+
+        if (record.type === 'tool_result' && record.toolName === 'mindmap_move_nodes') {
+          handleToolPlanResult(
+            record.params,
+            normalizeMindMapMoveNodesParams,
+            createMindMapMovePlan,
+            (params) => `待确认移动 ${params.moves.length} 个节点`,
+          )
+          return
+        }
+
+        if (record.type === 'tool_result' && record.toolName === 'mindmap_delete_nodes') {
+          handleToolPlanResult(
+            record.params,
+            normalizeMindMapDeleteNodesParams,
+            createMindMapDeletePlan,
+            (params) => `待确认删除 ${params.deletes.length} 个节点`,
+          )
+          return
+        }
+
         if (record.message?.errorMessage) {
           useAgentStore.setState({ error: record.message.errorMessage, isSending: false })
           return
@@ -338,6 +371,99 @@ function normalizeMindMapInsertNodesParams(value: unknown): AgentMindMapInsertNo
   }
 }
 
+function normalizeMindMapUpdateNodesParams(value: unknown): AgentMindMapUpdateNodesParams | null {
+  if (!isRecord(value)) return null
+  if (
+    typeof value.documentId !== 'string'
+    || typeof value.snapshotKey !== 'string'
+    || !Array.isArray(value.updates)
+  ) return null
+
+  const updates = value.updates
+    .map(normalizeMindMapNodeUpdateInput)
+    .filter((update): update is AgentMindMapUpdateNodesParams['updates'][number] => update !== null)
+  if (updates.length !== value.updates.length) return null
+
+  return {
+    documentId: value.documentId,
+    snapshotKey: value.snapshotKey,
+    updates,
+  }
+}
+
+function normalizeMindMapMoveNodesParams(value: unknown): AgentMindMapMoveNodesParams | null {
+  if (!isRecord(value)) return null
+  if (
+    typeof value.documentId !== 'string'
+    || typeof value.snapshotKey !== 'string'
+    || !Array.isArray(value.moves)
+  ) return null
+
+  const moves = value.moves
+    .map(normalizeMindMapNodeMoveInput)
+    .filter((move): move is AgentMindMapMoveNodesParams['moves'][number] => move !== null)
+  if (moves.length !== value.moves.length) return null
+
+  return {
+    documentId: value.documentId,
+    snapshotKey: value.snapshotKey,
+    moves,
+  }
+}
+
+function normalizeMindMapDeleteNodesParams(value: unknown): AgentMindMapDeleteNodesParams | null {
+  if (!isRecord(value)) return null
+  if (
+    typeof value.documentId !== 'string'
+    || typeof value.snapshotKey !== 'string'
+    || !Array.isArray(value.deletes)
+  ) return null
+
+  const deletes = value.deletes
+    .map(normalizeMindMapNodeDeleteInput)
+    .filter((deleteInput): deleteInput is AgentMindMapDeleteNodesParams['deletes'][number] => deleteInput !== null)
+  if (deletes.length !== value.deletes.length) return null
+
+  return {
+    documentId: value.documentId,
+    snapshotKey: value.snapshotKey,
+    deletes,
+  }
+}
+
+function handleToolPlanResult<TParams>(
+  rawParams: unknown,
+  normalize: (value: unknown) => TParams | null,
+  createPlan: (params: TParams) => { ok: true; plan: AgentChangePlan } | { ok: false; error: string },
+  getMessage: (params: TParams) => string,
+): void {
+  const params = normalize(rawParams)
+  if (!params) {
+    useAgentStore.setState({
+      error: 'Agent 工具请求格式无效',
+      isSending: false,
+    })
+    return
+  }
+
+  const plan = createPlan(params)
+  if (!plan.ok) {
+    useAgentStore.setState({
+      error: plan.error,
+      isSending: false,
+    })
+    return
+  }
+
+  const message = getMessage(params)
+  useAgentStore.setState((state) => ({
+    messages: appendAssistantMessage(state.messages, message),
+    pendingPlan: plan.plan,
+    error: null,
+    isSending: false,
+  }))
+}
+
 function createMindMapInsertPlan(
   params: AgentMindMapInsertNodesParams,
 ): { ok: true; plan: AgentChangePlan } | { ok: false; error: string } {
@@ -390,6 +516,140 @@ function createMindMapInsertPlan(
   }
 }
 
+function createMindMapUpdatePlan(
+  params: AgentMindMapUpdateNodesParams,
+): { ok: true; plan: AgentChangePlan } | { ok: false; error: string } {
+  const validation = validateToolDocumentContext(params)
+  if (!validation.ok) return validation
+  if (params.updates.length === 0) {
+    return { ok: false, error: 'Agent 工具请求没有包含节点更新' }
+  }
+
+  for (const update of params.updates) {
+    if (!findNodeById(validation.doc.root, update.nodeId)) {
+      return { ok: false, error: `节点不存在: ${update.nodeId}` }
+    }
+  }
+
+  return {
+    ok: true,
+    plan: {
+      schemaVersion: 1,
+      contextScope: 'currentDocument',
+      documentId: params.documentId,
+      snapshotKey: params.snapshotKey,
+      summary: `待确认更新 ${params.updates.length} 个节点`,
+      rationale: '助理已生成节点更新，确认后才会写入当前文档。',
+      riskLevel: 'low',
+      references: createCurrentDocumentReferences(validation.doc, params.updates.map((update) => update.nodeId)),
+      operations: params.updates.map((update) => ({
+        type: 'updateNode',
+        nodeId: update.nodeId,
+        text: update.text,
+        note: update.note,
+        tags: update.tags,
+        checked: update.checked,
+      })),
+    },
+  }
+}
+
+function createMindMapMovePlan(
+  params: AgentMindMapMoveNodesParams,
+): { ok: true; plan: AgentChangePlan } | { ok: false; error: string } {
+  const validation = validateToolDocumentContext(params)
+  if (!validation.ok) return validation
+  if (params.moves.length === 0) {
+    return { ok: false, error: 'Agent 工具请求没有包含节点移动' }
+  }
+
+  for (const move of params.moves) {
+    if (!findNodeById(validation.doc.root, move.nodeId)) {
+      return { ok: false, error: `节点不存在: ${move.nodeId}` }
+    }
+    const targetParent = findNodeById(validation.doc.root, move.targetParentNodeId)
+    if (!targetParent) {
+      return { ok: false, error: `目标父节点不存在: ${move.targetParentNodeId}` }
+    }
+    if (move.index < 0 || move.index > targetParent.children.length) {
+      return { ok: false, error: `移动位置无效: ${move.targetParentNodeId}[${move.index}]` }
+    }
+  }
+
+  return {
+    ok: true,
+    plan: {
+      schemaVersion: 1,
+      contextScope: 'currentDocument',
+      documentId: params.documentId,
+      snapshotKey: params.snapshotKey,
+      summary: `待确认移动 ${params.moves.length} 个节点`,
+      rationale: '助理已生成节点移动方案，确认后才会调整当前文档结构。',
+      riskLevel: 'medium',
+      references: createCurrentDocumentReferences(validation.doc, params.moves.map((move) => move.nodeId)),
+      operations: params.moves.map((move) => ({
+        type: 'moveNode',
+        nodeId: move.nodeId,
+        targetParentNodeId: move.targetParentNodeId,
+        index: move.index,
+      })),
+    },
+  }
+}
+
+function createMindMapDeletePlan(
+  params: AgentMindMapDeleteNodesParams,
+): { ok: true; plan: AgentChangePlan } | { ok: false; error: string } {
+  const validation = validateToolDocumentContext(params)
+  if (!validation.ok) return validation
+  if (params.deletes.length === 0) {
+    return { ok: false, error: 'Agent 工具请求没有包含节点删除' }
+  }
+
+  for (const deleteInput of params.deletes) {
+    if (!findNodeById(validation.doc.root, deleteInput.nodeId)) {
+      return { ok: false, error: `节点不存在: ${deleteInput.nodeId}` }
+    }
+  }
+
+  return {
+    ok: true,
+    plan: {
+      schemaVersion: 1,
+      contextScope: 'currentDocument',
+      documentId: params.documentId,
+      snapshotKey: params.snapshotKey,
+      summary: `待确认删除 ${params.deletes.length} 个节点`,
+      rationale: '助理已生成节点删除方案，删除属于高风险操作，请确认后再应用。',
+      riskLevel: 'high',
+      references: createCurrentDocumentReferences(validation.doc, params.deletes.map((deleteInput) => deleteInput.nodeId)),
+      operations: params.deletes.map((deleteInput) => ({
+        type: 'deleteNode',
+        nodeId: deleteInput.nodeId,
+        reason: deleteInput.reason,
+      })),
+    },
+  }
+}
+
+function validateToolDocumentContext(params: {
+  documentId: string
+  snapshotKey: string
+}): { ok: true; doc: NonNullable<ReturnType<typeof useDocumentStore.getState>['currentDoc']> } | { ok: false; error: string } {
+  const currentDoc = useDocumentStore.getState().currentDoc
+  if (!currentDoc) return { ok: false, error: '当前没有可修改的文档' }
+  if (params.documentId !== currentDoc.id) {
+    return { ok: false, error: 'Agent 工具请求不属于当前文档' }
+  }
+
+  const context = createAgentDocumentContext(currentDoc)
+  if (params.snapshotKey !== context.snapshotKey) {
+    return { ok: false, error: '当前文档已变化，请让助理重新生成节点' }
+  }
+
+  return { ok: true, doc: currentDoc }
+}
+
 function findNodeById(root: OutlineNode, nodeId: string): OutlineNode | null {
   if (root.id === nodeId) return root
   for (const child of root.children) {
@@ -397,6 +657,35 @@ function findNodeById(root: OutlineNode, nodeId: string): OutlineNode | null {
     if (result) return result
   }
   return null
+}
+
+function findNodePath(root: OutlineNode, nodeId: string, path: string[] = []): string[] | null {
+  if (root.id === nodeId) return path
+  for (const child of root.children) {
+    const result = findNodePath(child, nodeId, [...path, child.text])
+    if (result) return result
+  }
+  return null
+}
+
+function createCurrentDocumentReferences(
+  doc: NonNullable<ReturnType<typeof useDocumentStore.getState>['currentDoc']>,
+  nodeIds: string[],
+): AgentChangePlan['references'] {
+  const references: AgentChangePlan['references'] = []
+  for (const nodeId of new Set(nodeIds)) {
+    const node = findNodeById(doc.root, nodeId)
+    if (!node) continue
+    references.push({
+      sourceType: 'currentDocument',
+      documentId: doc.id,
+      documentTitle: doc.title,
+      nodeId,
+      path: findNodePath(doc.root, nodeId) ?? [node.text],
+      snippet: node.text,
+    })
+  }
+  return references
 }
 
 function createInsertedNodeFromMindMapInput(input: AgentMindMapNodeInput): AgentInsertedNode | null {
@@ -434,6 +723,46 @@ function normalizeMindMapNodeInput(
     tags: Array.isArray(value.tags) ? value.tags.filter(isString) : undefined,
     checked: typeof value.checked === 'boolean' || value.checked === null ? value.checked : undefined,
     children,
+  }
+}
+
+function normalizeMindMapNodeUpdateInput(
+  value: unknown,
+): AgentMindMapUpdateNodesParams['updates'][number] | null {
+  if (!isRecord(value) || typeof value.nodeId !== 'string') return null
+  return {
+    nodeId: value.nodeId,
+    text: typeof value.text === 'string' ? value.text : undefined,
+    note: typeof value.note === 'string' || value.note === null ? value.note : undefined,
+    tags: Array.isArray(value.tags) ? value.tags.filter(isString) : undefined,
+    checked: typeof value.checked === 'boolean' || value.checked === null ? value.checked : undefined,
+  }
+}
+
+function normalizeMindMapNodeMoveInput(
+  value: unknown,
+): AgentMindMapMoveNodesParams['moves'][number] | null {
+  if (
+    !isRecord(value)
+    || typeof value.nodeId !== 'string'
+    || typeof value.targetParentNodeId !== 'string'
+    || typeof value.index !== 'number'
+  ) return null
+
+  return {
+    nodeId: value.nodeId,
+    targetParentNodeId: value.targetParentNodeId,
+    index: value.index,
+  }
+}
+
+function normalizeMindMapNodeDeleteInput(
+  value: unknown,
+): AgentMindMapDeleteNodesParams['deletes'][number] | null {
+  if (!isRecord(value) || typeof value.nodeId !== 'string') return null
+  return {
+    nodeId: value.nodeId,
+    reason: typeof value.reason === 'string' ? value.reason : undefined,
   }
 }
 

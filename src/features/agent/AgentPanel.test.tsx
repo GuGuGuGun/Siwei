@@ -260,6 +260,139 @@ describe('AgentPanel', () => {
     expect(useAgentStore.getState().pendingPlan).toBeNull()
   })
 
+  it('previews mind map update tool calls as audited plans', () => {
+    const doc = useDocumentStore.getState().currentDoc!
+    render(<AgentPanel />)
+
+    act(() => {
+      useAgentStore.getState().handleRpcEvent?.(JSON.stringify({
+        type: 'tool_result',
+        toolName: 'mindmap_update_nodes',
+        params: {
+          documentId: doc.id,
+          snapshotKey: JSON.stringify(doc),
+          updates: [
+            {
+              nodeId: 'node-2',
+              text: '助理更新节点',
+              note: '更新备注',
+              tags: ['重点'],
+              checked: true,
+            },
+          ],
+        },
+      }))
+    })
+
+    expect(useDocumentStore.getState().currentDoc?.root.children[1].text).toBe('第二节点')
+    expect(screen.getAllByText('待确认更新 1 个节点')).toHaveLength(2)
+    expect(useAgentStore.getState().pendingPlan).toMatchObject({
+      summary: '待确认更新 1 个节点',
+      riskLevel: 'low',
+      operations: [
+        {
+          type: 'updateNode',
+          nodeId: 'node-2',
+          text: '助理更新节点',
+        },
+      ],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '应用修改' }))
+
+    expect(useDocumentStore.getState().currentDoc?.root.children[1]).toMatchObject({
+      text: '助理更新节点',
+      note: '更新备注',
+      tags: ['重点'],
+      checked: true,
+    })
+  })
+
+  it('previews mind map move tool calls without mutating before confirmation', () => {
+    const doc = useDocumentStore.getState().currentDoc!
+    render(<AgentPanel />)
+
+    act(() => {
+      useAgentStore.getState().handleRpcEvent?.(JSON.stringify({
+        type: 'tool_result',
+        toolName: 'mindmap_move_nodes',
+        params: {
+          documentId: doc.id,
+          snapshotKey: JSON.stringify(doc),
+          moves: [
+            {
+              nodeId: 'node-2',
+              targetParentNodeId: 'node-1',
+              index: 1,
+            },
+          ],
+        },
+      }))
+    })
+
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual([
+      'node-1',
+      'node-2',
+    ])
+    expect(screen.getAllByText('待确认移动 1 个节点')).toHaveLength(2)
+    expect(useAgentStore.getState().pendingPlan?.operations[0]).toMatchObject({
+      type: 'moveNode',
+      nodeId: 'node-2',
+      targetParentNodeId: 'node-1',
+      index: 1,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '应用修改' }))
+
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual(['node-1'])
+    expect(useDocumentStore.getState().currentDoc?.root.children[0].children.map((node) => node.id)).toEqual([
+      'node-1-1',
+      'node-2',
+    ])
+  })
+
+  it('previews mind map delete tool calls as high-risk audited plans', () => {
+    const doc = useDocumentStore.getState().currentDoc!
+    render(<AgentPanel />)
+
+    act(() => {
+      useAgentStore.getState().handleRpcEvent?.(JSON.stringify({
+        type: 'tool_result',
+        toolName: 'mindmap_delete_nodes',
+        params: {
+          documentId: doc.id,
+          snapshotKey: JSON.stringify(doc),
+          deletes: [
+            {
+              nodeId: 'node-1',
+              reason: '清理重复分支',
+            },
+          ],
+        },
+      }))
+    })
+
+    expect(screen.getAllByText('待确认删除 1 个节点')).toHaveLength(2)
+    expect(screen.getByText(/高风险删除/)).toBeInTheDocument()
+    expect(useAgentStore.getState().pendingPlan).toMatchObject({
+      riskLevel: 'high',
+      operations: [
+        {
+          type: 'deleteNode',
+          nodeId: 'node-1',
+          reason: '清理重复分支',
+        },
+      ],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '应用修改' }))
+    expect(screen.getByRole('dialog', { name: '确认删除节点' })).toBeInTheDocument()
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual([
+      'node-1',
+      'node-2',
+    ])
+  })
+
   it('ignores non-assistant final message events so internal prompts stay hidden', () => {
     const doc = useDocumentStore.getState().currentDoc!
     const internalPrompt = [

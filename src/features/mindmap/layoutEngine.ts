@@ -1,11 +1,13 @@
 import { Edge as FlowEdge, Node as FlowNode, Position } from 'reactflow'
 import type {
+  MindMapLayoutNodeState,
   MindMapLayoutPosition,
   MindMapLayoutState,
   MindMapLayoutStrategy,
   OutlineNode,
 } from '../../types/document'
 import { GraphData } from './outlineToGraph'
+import { outlineToGraph } from './outlineToGraph'
 import { layoutGraph } from './layoutGraph'
 import {
   DEFAULT_MIND_MAP_LAYOUT_STRATEGY,
@@ -27,14 +29,29 @@ export interface MindMapLayoutInput {
   strategy: MindMapLayoutStrategy
   persistedLayout?: MindMapLayoutState
   nodeSizes: Record<string, MindMapNodeSize>
-  mode: 'persistent' | 'transient'
+  mode: 'persistent' | 'transient' | 'preview'
+}
+
+export interface MindMapLayoutDiagnostics {
+  strategy: MindMapLayoutStrategy
+  durationMs: number
+  nodeCount: number
+  positionedCount: number
+  missingPositionCount: number
+  lockedCount: number
+  overlapCount: number
+  outOfBoundsCount: number
+  fallbackReason?: string
+  workerEnabled?: boolean
+  workerDurationMs?: number
+  workerFallbackReason?: string
 }
 
 export interface MindMapLayoutResult {
   nodes: FlowNode[]
   edges: FlowEdge[]
   layoutState?: MindMapLayoutState
-  diagnostics?: string[]
+  diagnostics?: MindMapLayoutDiagnostics
 }
 
 export interface MindMapLayoutEngine {
@@ -49,6 +66,15 @@ const SIBLING_GAP = 34
 const RADIAL_BASE_RADIUS = 280
 const RADIAL_LEVEL_RADIUS_GAP = 240
 const RADIAL_MIN_SECTOR_RADIANS = Math.PI / 10
+const FREE_CANVAS_CHILD_GAP_X = 280
+const FREE_CANVAS_CHILD_GAP_Y = 96
+const DIAGNOSTIC_BOUNDS = 20000
+
+export interface ForceDirectedLayoutParams {
+  strength: number
+  spread: number
+  quality: number
+}
 
 export function estimateMindMapNodeSize(node: OutlineNode): MindMapNodeSize {
   const textWidth = Math.min(MAX_ESTIMATED_NODE_WIDTH, Math.max(MIN_ESTIMATED_NODE_WIDTH, 96 + node.text.length * 8))
@@ -65,17 +91,21 @@ export function estimateMindMapNodeSize(node: OutlineNode): MindMapNodeSize {
 }
 
 export function layoutMindMap(input: MindMapLayoutInput): MindMapLayoutResult {
+  const startedAt = now()
   const engine = resolveLayoutEngine(input.strategy)
 
   try {
-    return engine.layout(input)
+    return withDiagnostics(input, engine.layout(input), startedAt)
   } catch (error) {
     // 实验布局失败时回退到经典布局，保证用户仍能看到脑图而不是整屏空白。
     if (input.strategy === DEFAULT_MIND_MAP_LAYOUT_STRATEGY) throw error
-    return {
-      ...classicDagreEngine.layout({ ...input, strategy: DEFAULT_MIND_MAP_LAYOUT_STRATEGY }),
-      diagnostics: [`布局策略已回退到 classic-dagre: ${String(error)}`],
-    }
+    const fallbackResult = classicDagreEngine.layout({ ...input, strategy: DEFAULT_MIND_MAP_LAYOUT_STRATEGY })
+    return withDiagnostics(
+      input,
+      fallbackResult,
+      startedAt,
+      `布局策略已回退到 classic-dagre: ${String(error)}`,
+    )
   }
 }
 
@@ -174,9 +204,157 @@ export const radialMindMapEngine: MindMapLayoutEngine = {
   },
 }
 
+export const freeCanvasEngine: MindMapLayoutEngine = {
+  layout(input) {
+    const graphNodeIds = new Set(input.graphData.nodes.map((node) => node.id))
+    const persisted = normalizeMindMapLayoutState(input.persistedLayout, 'free-canvas')
+    const positions = new Map<string, MindMapLayoutPosition>()
+    const sourceByNodeId = new Map<string, MindMapLayoutNodeState['source']>()
+
+    layoutFreeCanvasNode({
+      node: input.root,
+      parentId: null,
+      index: 0,
+      graphNodeIds,
+      positions,
+      sourceByNodeId,
+      persisted,
+      nodeSizes: input.nodeSizes,
+    })
+
+    const nodes = input.graphData.nodes.map((node) => ({
+      ...node,
+      position: positions.get(node.id) ?? node.position,
+    }))
+
+    return createResult(
+      input,
+      nodes,
+      attachDirectionalEdgeHandles(input.graphData.edges, nodes, input.nodeSizes),
+      { sourceByNodeId },
+    )
+  },
+}
+
+export function relayoutMindMapBranch(params: {
+  root: OutlineNode
+  branchRootId: string
+  layout: MindMapLayoutState
+  nodeSizes: Record<string, MindMapNodeSize>
+  strategy: MindMapLayoutStrategy
+  includeBranchRoot?: boolean
+}): MindMapLayoutState {
+  const normalized = normalizeMindMapLayoutState(params.layout, params.strategy) ?? params.layout
+  const branchRoot = findOutlineNode(params.root, params.branchRootId)
+  if (!branchRoot) return normalized
+
+  const nextNodes: MindMapLayoutState['nodes'] = { ...normalized.nodes }
+  const branchRootState = nextNodes[params.branchRootId]
+  const branchOrigin = branchRootState?.position ?? { x: 0, y: 0 }
+
+  const visit = (node: OutlineNode, parentPosition: MindMapLayoutPosition, index: number, depth: number) => {
+    const existing = nextNodes[node.id]
+    const shouldKeepPosition = node.id === params.branchRootId && !params.includeBranchRoot || existing?.locked
+    const position = shouldKeepPosition
+      ? existing?.position ?? parentPosition
+      : {
+        x: parentPosition.x + FREE_CANVAS_CHILD_GAP_X,
+        y: parentPosition.y + (index - (node.children.length - 1) / 2) * FREE_CANVAS_CHILD_GAP_Y + depth * 12,
+      }
+
+    nextNodes[node.id] = {
+      position,
+      source: shouldKeepPosition ? existing?.source ?? 'manual' : 'incremental',
+      locked: existing?.locked ?? false,
+      updatedAt: shouldKeepPosition ? existing?.updatedAt : Date.now(),
+    }
+
+    node.children.forEach((child, childIndex) => visit(child, position, childIndex, depth + 1))
+  }
+
+  branchRoot.children.forEach((child, index) => visit(child, branchOrigin, index, 1))
+
+  if (params.includeBranchRoot && branchRootState && !branchRootState.locked) {
+    nextNodes[params.branchRootId] = {
+      ...branchRootState,
+      source: 'incremental',
+      position: branchOrigin,
+    }
+  }
+
+  return {
+    engineVersion: MIND_MAP_LAYOUT_ENGINE_VERSION,
+    strategy: params.strategy,
+    nodes: nextNodes,
+  }
+}
+
+export function applyForceDirectedLayoutPreview(params: {
+  root: OutlineNode
+  layout: MindMapLayoutState
+  nodeSizes: Record<string, MindMapNodeSize>
+  params: ForceDirectedLayoutParams
+  mode: 'preview' | 'apply'
+}): MindMapLayoutResult {
+  const graphData = outlineToGraph(params.root, new Set())
+  const normalized = normalizeMindMapLayoutState(params.layout, 'force-directed') ?? params.layout
+  const orderedNodes = flattenOutlineNodes(params.root)
+  const nodeCount = Math.max(1, orderedNodes.length)
+  const radius = 160 + params.params.spread * 80
+  const iterations = Math.max(1, Math.round(params.params.quality))
+  const positionById = new Map<string, MindMapLayoutPosition>()
+
+  orderedNodes.forEach((node, index) => {
+    const existing = normalized.nodes[node.id]
+    if (existing?.locked) {
+      positionById.set(node.id, existing.position)
+      return
+    }
+
+    const angle = deterministicAngle(node.id, index, nodeCount)
+    const base = existing?.position ?? { x: 0, y: 0 }
+    const pull = params.params.strength / Math.max(1, iterations)
+    positionById.set(node.id, {
+      x: Math.round((Math.cos(angle) * radius + base.x * pull) * 100) / 100,
+      y: Math.round((Math.sin(angle) * radius + base.y * pull) * 100) / 100,
+    })
+  })
+
+  const nodes = graphData.nodes.map((node) => ({
+    ...node,
+    position: positionById.get(node.id) ?? node.position,
+  }))
+  const edges = attachDirectionalEdgeHandles(graphData.edges, nodes, params.nodeSizes)
+  const result: MindMapLayoutResult = {
+    nodes,
+    edges,
+    diagnostics: createDiagnostics('force-directed', nodes, normalized, params.nodeSizes, now(), undefined),
+  }
+
+  if (params.mode === 'apply') {
+    result.layoutState = {
+      engineVersion: MIND_MAP_LAYOUT_ENGINE_VERSION,
+      strategy: 'force-directed',
+      nodes: Object.fromEntries(orderedNodes.map((node) => {
+        const previous = normalized.nodes[node.id]
+        const locked = previous?.locked ?? false
+        return [node.id, {
+          position: positionById.get(node.id) ?? previous?.position ?? { x: 0, y: 0 },
+          source: locked ? previous?.source ?? 'manual' : 'force-applied',
+          locked,
+          updatedAt: locked ? previous?.updatedAt : Date.now(),
+        }]
+      })),
+    }
+  }
+
+  return result
+}
+
 function resolveLayoutEngine(strategy: MindMapLayoutStrategy): MindMapLayoutEngine {
   if (strategy === 'balanced-mindmap') return balancedMindMapEngine
   if (strategy === 'radial-mindmap') return radialMindMapEngine
+  if (strategy === 'free-canvas') return freeCanvasEngine
   if (!SUPPORTED_MIND_MAP_LAYOUT_STRATEGIES.includes(strategy as typeof SUPPORTED_MIND_MAP_LAYOUT_STRATEGIES[number])) {
     return classicDagreEngine
   }
@@ -258,8 +436,13 @@ function layoutSingleTopicMindMap(params: {
   })
 }
 
-function createResult(input: MindMapLayoutInput, nodes: FlowNode[], edges: FlowEdge[]): MindMapLayoutResult {
-  if (input.mode === 'transient') {
+function createResult(
+  input: MindMapLayoutInput,
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+  options: { sourceByNodeId?: Map<string, MindMapLayoutNodeState['source']> } = {},
+): MindMapLayoutResult {
+  if (input.mode === 'transient' || input.mode === 'preview') {
     return { nodes, edges }
   }
 
@@ -274,13 +457,146 @@ function createResult(input: MindMapLayoutInput, nodes: FlowNode[], edges: FlowE
         const previous = input.persistedLayout?.nodes[node.id]
         return [node.id, {
           position: node.position,
-          source: previous?.locked ? previous.source : 'auto',
+          source: previous?.locked ? previous.source : previous?.source ?? options.sourceByNodeId?.get(node.id) ?? 'auto',
           locked: previous?.locked ?? false,
           updatedAt: previous?.updatedAt,
         }]
       })),
     },
   }
+}
+
+function withDiagnostics(
+  input: MindMapLayoutInput,
+  result: MindMapLayoutResult,
+  startedAt: number,
+  fallbackReason?: string,
+): MindMapLayoutResult {
+  return {
+    ...result,
+    diagnostics: result.diagnostics ?? createDiagnostics(
+      input.strategy,
+      result.nodes,
+      input.persistedLayout,
+      input.nodeSizes,
+      startedAt,
+      fallbackReason,
+    ),
+  }
+}
+
+function createDiagnostics(
+  strategy: MindMapLayoutStrategy,
+  nodes: FlowNode[],
+  persistedLayout: MindMapLayoutState | undefined,
+  nodeSizes: Record<string, MindMapNodeSize>,
+  startedAt: number,
+  fallbackReason?: string,
+): MindMapLayoutDiagnostics {
+  const lockedCount = Object.values(normalizeMindMapLayoutState(persistedLayout)?.nodes ?? {})
+    .filter((state) => state.locked)
+    .length
+  const positionedNodes = nodes.filter((node) => Number.isFinite(node.position?.x) && Number.isFinite(node.position?.y))
+
+  return {
+    strategy,
+    durationMs: Math.max(0, Math.round((now() - startedAt) * 100) / 100),
+    nodeCount: nodes.length,
+    positionedCount: positionedNodes.length,
+    missingPositionCount: nodes.length - positionedNodes.length,
+    lockedCount,
+    overlapCount: countOverlaps(positionedNodes, nodeSizes),
+    outOfBoundsCount: positionedNodes.filter((node) => (
+      Math.abs(node.position.x) > DIAGNOSTIC_BOUNDS || Math.abs(node.position.y) > DIAGNOSTIC_BOUNDS
+    )).length,
+    fallbackReason,
+  }
+}
+
+function countOverlaps(nodes: FlowNode[], nodeSizes: Record<string, MindMapNodeSize>): number {
+  let count = 0
+  for (let leftIndex = 0; leftIndex < nodes.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < nodes.length; rightIndex += 1) {
+      if (rectanglesOverlap(nodes[leftIndex], nodes[rightIndex], nodeSizes)) count += 1
+    }
+  }
+  return count
+}
+
+function rectanglesOverlap(left: FlowNode, right: FlowNode, nodeSizes: Record<string, MindMapNodeSize>): boolean {
+  const leftSize = resolveNodeSize(left.id, nodeSizes)
+  const rightSize = resolveNodeSize(right.id, nodeSizes)
+  return left.position.x < right.position.x + rightSize.width
+    && left.position.x + leftSize.width > right.position.x
+    && left.position.y < right.position.y + rightSize.height
+    && left.position.y + leftSize.height > right.position.y
+}
+
+function layoutFreeCanvasNode(params: {
+  node: OutlineNode
+  parentId: string | null
+  index: number
+  graphNodeIds: Set<string>
+  positions: Map<string, MindMapLayoutPosition>
+  sourceByNodeId: Map<string, MindMapLayoutNodeState['source']>
+  persisted?: MindMapLayoutState
+  nodeSizes: Record<string, MindMapNodeSize>
+}) {
+  if (!params.graphNodeIds.has(params.node.id)) return
+
+  const persistedNode = params.persisted?.nodes[params.node.id]
+  const parentPosition = params.parentId ? params.positions.get(params.parentId) : undefined
+  const siblingCount = params.parentId
+    ? params.persisted ? params.node.children.length : 1
+    : 1
+  const position = persistedNode?.position
+    ?? (parentPosition
+      ? {
+        x: parentPosition.x + FREE_CANVAS_CHILD_GAP_X,
+        y: parentPosition.y + (params.index - (siblingCount - 1) / 2) * FREE_CANVAS_CHILD_GAP_Y,
+      }
+      : { x: -resolveNodeSize(params.node.id, params.nodeSizes).width / 2, y: -resolveNodeSize(params.node.id, params.nodeSizes).height / 2 })
+
+  params.positions.set(params.node.id, position)
+  if (!persistedNode) {
+    params.sourceByNodeId.set(params.node.id, params.parentId ? 'incremental' : 'auto')
+  }
+
+  params.node.children
+    .filter((child) => params.graphNodeIds.has(child.id))
+    .forEach((child, index, siblings) => {
+      layoutFreeCanvasNode({
+        ...params,
+        node: child,
+        parentId: params.node.id,
+        index: index - (siblings.length - params.node.children.length),
+      })
+    })
+}
+
+function findOutlineNode(root: OutlineNode, nodeId: string): OutlineNode | null {
+  if (root.id === nodeId) return root
+  for (const child of root.children) {
+    const found = findOutlineNode(child, nodeId)
+    if (found) return found
+  }
+  return null
+}
+
+function flattenOutlineNodes(root: OutlineNode): OutlineNode[] {
+  return [root, ...root.children.flatMap(flattenOutlineNodes)]
+}
+
+function deterministicAngle(nodeId: string, index: number, count: number): number {
+  let hash = 0
+  for (let charIndex = 0; charIndex < nodeId.length; charIndex += 1) {
+    hash = (hash * 31 + nodeId.charCodeAt(charIndex)) >>> 0
+  }
+  return ((index / count) * Math.PI * 2) + (hash % 360) * Math.PI / 1800
+}
+
+function now(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now()
 }
 
 function attachDirectionalEdgeHandles(

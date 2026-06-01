@@ -17,7 +17,16 @@ import { createAgentDocumentPreview } from '../agent/agentChangePlan'
 import { useAgentStore } from '../agent/agentStore'
 import { useNodeContextMenuController } from '../document/useNodeContextMenuController'
 import { outlineToGraph } from './outlineToGraph'
-import { estimateMindMapNodeSize, layoutMindMap, MindMapLayoutInput, MindMapNodeSize } from './layoutEngine'
+import {
+  applyForceDirectedLayoutPreview,
+  estimateMindMapNodeSize,
+  layoutMindMap,
+  MindMapLayoutDiagnostics,
+  MindMapLayoutInput,
+  MindMapLayoutResult,
+  MindMapNodeSize,
+  relayoutMindMapBranch,
+} from './layoutEngine'
 import { MindMapNode, MindMapNodeData } from './MindMapNode'
 import { MindMapContextMenu } from './MindMapContextMenu'
 import { MindMapDeleteDialog } from './MindMapDeleteDialog'
@@ -114,6 +123,9 @@ export const MindMapView: React.FC = () => {
   const [collapsedBranchSides, setCollapsedBranchSides] = React.useState<Set<string>>(new Set())
   const [exportClean, setExportClean] = React.useState(false)
   const [feedback, setFeedback] = React.useState<string | null>(null)
+  const [diagnosticsOpen, setDiagnosticsOpen] = React.useState(false)
+  const [layoutDiagnostics, setLayoutDiagnostics] = React.useState<MindMapLayoutDiagnostics | null>(null)
+  const [forcePreview, setForcePreview] = React.useState<MindMapLayoutResult | null>(null)
   const flowInstanceRef = React.useRef<ReactFlowInstance | null>(null)
   const flowWrapperRef = React.useRef<HTMLDivElement | null>(null)
   const dragStartPositionsRef = React.useRef<Map<string, { x: number; y: number }> | null>(null)
@@ -369,7 +381,7 @@ export const MindMapView: React.FC = () => {
       nodeSizes,
       mode: validFocusRootNodeId || searchQuery || agentPreview.insertionsByParentId.size > 0 ? 'transient' : 'persistent',
     }
-    const initialLayouted = layoutMindMap(layoutInput)
+    const initialLayouted = forcePreview ?? layoutMindMap(layoutInput)
     const sideFilteredGraph = filterCollapsedBranchSides(
       layoutInput.graphData,
       initialLayouted.edges,
@@ -384,8 +396,11 @@ export const MindMapView: React.FC = () => {
         visibleNodeIds: new Set(sideFilteredGraph.nodes.map((node) => node.id)),
       })
 
-    if (layouted.diagnostics?.length) {
-      setFeedback(layouted.diagnostics[0])
+    if (layouted.diagnostics) {
+      setLayoutDiagnostics(layouted.diagnostics)
+      if (layouted.diagnostics.fallbackReason) {
+        setFeedback(layouted.diagnostics.fallbackReason)
+      }
     }
 
     setNodes(attachLayoutNodeSizes(layouted.nodes, nodeSizes))
@@ -423,6 +438,7 @@ export const MindMapView: React.FC = () => {
     previewLayoutRoot,
     searchQuery,
     toggleBranchSide,
+    forcePreview,
   ])
 
   React.useEffect(() => {
@@ -555,6 +571,10 @@ export const MindMapView: React.FC = () => {
 
   const handleNodeDragStop = React.useCallback((_event: React.MouseEvent, draggedNode: Node) => {
     if (!currentDoc) return
+    if (forcePreview) {
+      setFeedback('力导向预览中不能编辑结构')
+      return
+    }
     if (mode === 'reorganize') {
       const dragTarget = resolveDraggedNodeTarget(draggedNode)
       updateDropPreview(null, draggedNode)
@@ -603,7 +623,7 @@ export const MindMapView: React.FC = () => {
 
     commitMindMapLayout(createMindMapLayoutState(positions, {
       strategy: experimentalLayoutEnabled ? layoutStrategy : DEFAULT_MIND_MAP_LAYOUT_STRATEGY,
-      lockedNodeIds: new Set([draggedNode.id, ...descendantIds]),
+      lockedNodeIds: new Set([draggedNode.id]),
       previous: currentDoc.mindMapLayout,
     }))
     setFeedback('布局已更新')
@@ -612,6 +632,7 @@ export const MindMapView: React.FC = () => {
     commitMindMapLayout,
     currentDoc,
     experimentalLayoutEnabled,
+    forcePreview,
     getNodeDescendantIds,
     layoutStrategy,
     mode,
@@ -646,6 +667,81 @@ export const MindMapView: React.FC = () => {
     commitMindMapLayout(createMindMapLayoutState(positions, { strategy, source: 'auto' }))
     setFeedback('布局已更新')
   }, [collapsedNodeIds, commitMindMapLayout, currentDoc, experimentalLayoutEnabled, graphRootNode, layoutStrategy, measuredNodeSizes, visibleNodeIds])
+
+  const handleRelayoutBranch = React.useCallback((nodeId: string) => {
+    if (!currentDoc?.mindMapLayout) return
+    commitMindMapLayout(relayoutMindMapBranch({
+      root: currentDoc.root,
+      branchRootId: nodeId,
+      layout: currentDoc.mindMapLayout,
+      nodeSizes: buildMindMapNodeSizes(currentDoc.root, measuredNodeSizes),
+      strategy: experimentalLayoutEnabled ? layoutStrategy : DEFAULT_MIND_MAP_LAYOUT_STRATEGY,
+    }))
+    setFeedback('已重排当前分支')
+  }, [commitMindMapLayout, currentDoc, experimentalLayoutEnabled, layoutStrategy, measuredNodeSizes])
+
+  const handleUnlockNode = React.useCallback((nodeId: string) => {
+    if (!currentDoc?.mindMapLayout?.nodes[nodeId]) return
+    commitMindMapLayout({
+      ...currentDoc.mindMapLayout,
+      nodes: {
+        ...currentDoc.mindMapLayout.nodes,
+        [nodeId]: {
+          ...currentDoc.mindMapLayout.nodes[nodeId],
+          locked: false,
+        },
+      },
+    })
+    setFeedback('已解锁当前节点')
+  }, [commitMindMapLayout, currentDoc])
+
+  const handleForceDirectedPreview = React.useCallback(() => {
+    if (!currentDoc) return
+    const baseLayout = currentDoc.mindMapLayout ?? createMindMapLayoutState(
+      nodes.reduce<Record<string, { x: number; y: number }>>((positions, node) => {
+        positions[node.id] = node.position
+        return positions
+      }, {}),
+      { strategy: experimentalLayoutEnabled ? layoutStrategy : DEFAULT_MIND_MAP_LAYOUT_STRATEGY },
+    )
+    const preview = applyForceDirectedLayoutPreview({
+      root: graphRootNode ?? currentDoc.root,
+      layout: baseLayout,
+      nodeSizes: buildMindMapNodeSizes(graphRootNode ?? currentDoc.root, measuredNodeSizes),
+      params: { strength: 2, spread: 2, quality: 2 },
+      mode: 'preview',
+    })
+    setForcePreview(preview)
+    setFeedback('已进入力导向预览')
+  }, [currentDoc, experimentalLayoutEnabled, graphRootNode, layoutStrategy, measuredNodeSizes, nodes])
+
+  const handleCancelForceDirectedPreview = React.useCallback(() => {
+    setForcePreview(null)
+    setFeedback('已取消力导向预览')
+  }, [])
+
+  const handleApplyForceDirectedPreview = React.useCallback(() => {
+    if (!currentDoc) return
+    const baseLayout = currentDoc.mindMapLayout ?? createMindMapLayoutState(
+      nodes.reduce<Record<string, { x: number; y: number }>>((positions, node) => {
+        positions[node.id] = node.position
+        return positions
+      }, {}),
+      { strategy: experimentalLayoutEnabled ? layoutStrategy : DEFAULT_MIND_MAP_LAYOUT_STRATEGY },
+    )
+    const applied = applyForceDirectedLayoutPreview({
+      root: graphRootNode ?? currentDoc.root,
+      layout: baseLayout,
+      nodeSizes: buildMindMapNodeSizes(graphRootNode ?? currentDoc.root, measuredNodeSizes),
+      params: { strength: 2, spread: 2, quality: 2 },
+      mode: 'apply',
+    })
+    if (applied.layoutState) {
+      commitMindMapLayout(applied.layoutState)
+    }
+    setForcePreview(null)
+    setFeedback('已应用力导向布局')
+  }, [commitMindMapLayout, currentDoc, experimentalLayoutEnabled, graphRootNode, layoutStrategy, measuredNodeSizes, nodes])
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -751,7 +847,7 @@ export const MindMapView: React.FC = () => {
         minZoom={0.1}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
-        nodesDraggable
+        nodesDraggable={!forcePreview}
         nodesConnectable={false}
         elementsSelectable
         className="text-zinc-700"
@@ -789,13 +885,45 @@ export const MindMapView: React.FC = () => {
           onModeChange={setMode}
           onStrategyChange={handleStrategyChange}
           onAutoLayout={handleAutoLayout}
+          onForceDirectedPreview={handleForceDirectedPreview}
+          onToggleDiagnostics={() => setDiagnosticsOpen((open) => !open)}
           onToggleSearch={() => setSearchOpen((open) => !open)}
           onResetFocus={handleResetFocus}
         />
       )}
+      {forcePreview && !exportClean && (
+        <div className="absolute left-4 top-[4.75rem] z-10 flex items-center gap-2 rounded-md border border-amber-900/10 bg-[#FAF8F4]/95 p-2 shadow-fabric">
+          <button
+            type="button"
+            aria-label="应用力导向布局"
+            onClick={handleApplyForceDirectedPreview}
+            className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-800"
+          >
+            应用
+          </button>
+          <button
+            type="button"
+            aria-label="取消力导向预览"
+            onClick={handleCancelForceDirectedPreview}
+            className="rounded-md border border-amber-900/10 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-amber-50"
+          >
+            取消
+          </button>
+        </div>
+      )}
       {feedback && !exportClean && (
-        <div className="absolute left-4 top-[4.75rem] z-10 max-w-[calc(100%-2rem)] rounded-md border border-amber-900/10 bg-[#FAF8F4]/95 px-3 py-2 text-xs font-medium text-zinc-600 shadow-fabric">
+        <div className={`absolute left-4 ${forcePreview ? 'top-[7.5rem]' : 'top-[4.75rem]'} z-10 max-w-[calc(100%-2rem)] rounded-md border border-amber-900/10 bg-[#FAF8F4]/95 px-3 py-2 text-xs font-medium text-zinc-600 shadow-fabric`}>
           {feedback}
+        </div>
+      )}
+      {diagnosticsOpen && layoutDiagnostics && !exportClean && (
+        <div className="absolute right-4 top-4 z-10 w-64 rounded-md border border-amber-900/10 bg-[#FAF8F4]/95 p-3 text-xs text-zinc-600 shadow-fabric">
+          <div className="mb-2 font-semibold text-zinc-800">布局诊断</div>
+          <div>策略：{layoutDiagnostics.strategy}</div>
+          <div>节点：{layoutDiagnostics.positionedCount}/{layoutDiagnostics.nodeCount}</div>
+          <div>重叠：{layoutDiagnostics.overlapCount}</div>
+          <div>越界：{layoutDiagnostics.outOfBoundsCount}</div>
+          {layoutDiagnostics.fallbackReason && <div>回退：{layoutDiagnostics.fallbackReason}</div>}
         </div>
       )}
       {searchOpen && !exportClean && (
@@ -820,6 +948,14 @@ export const MindMapView: React.FC = () => {
             handleFocusBranch(contextMenu.nodeId)
             closeContextMenu()
           }}
+          onRelayoutBranch={experimentalLayoutEnabled && !forcePreview ? () => {
+            handleRelayoutBranch(contextMenu.nodeId)
+            closeContextMenu()
+          } : undefined}
+          onUnlockNode={experimentalLayoutEnabled && !forcePreview ? () => {
+            handleUnlockNode(contextMenu.nodeId)
+            closeContextMenu()
+          } : undefined}
         />
       )}
 

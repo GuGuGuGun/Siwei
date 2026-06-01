@@ -5,17 +5,55 @@ use std::{
 };
 
 use crate::{
-    models::OutlineDocument,
+    models::{MindMapLayoutState, OutlineDocument, OutlineNode},
     utils::error::{AppError, AppResult},
 };
 
 pub const MAX_DOCUMENT_SIZE_BYTES: u64 = 10 * 1024 * 1024;
 
 pub fn save_document(path: impl AsRef<Path>, doc: &OutlineDocument) -> AppResult<()> {
-    doc.validate()?;
-    let content = serde_json::to_string_pretty(doc)
+    let normalized_doc = document_with_pruned_layout(doc);
+    normalized_doc.validate()?;
+    let content = serde_json::to_string_pretty(&normalized_doc)
         .map_err(|error| AppError::JsonParse(error.to_string()))?;
     atomic_write_with_backup(path.as_ref(), &content)
+}
+
+fn document_with_pruned_layout(doc: &OutlineDocument) -> OutlineDocument {
+    let Some(layout) = doc.mind_map_layout.clone() else {
+        return doc.clone();
+    };
+    let MindMapLayoutState::V1 {
+        engine_version,
+        strategy,
+        nodes,
+    } = layout.normalize()
+    else {
+        unreachable!("layout normalization always returns v1")
+    };
+
+    let mut valid_node_ids = std::collections::HashSet::new();
+    collect_node_ids(&doc.root, &mut valid_node_ids);
+    let pruned_nodes = nodes
+        .into_iter()
+        .filter(|(node_id, _)| valid_node_ids.contains(node_id))
+        .collect();
+
+    OutlineDocument {
+        mind_map_layout: Some(MindMapLayoutState::V1 {
+            engine_version,
+            strategy,
+            nodes: pruned_nodes,
+        }),
+        ..doc.clone()
+    }
+}
+
+fn collect_node_ids(node: &OutlineNode, ids: &mut std::collections::HashSet<String>) {
+    ids.insert(node.id.clone());
+    for child in &node.children {
+        collect_node_ids(child, ids);
+    }
 }
 
 pub fn load_document(path: impl AsRef<Path>) -> AppResult<OutlineDocument> {
@@ -402,6 +440,41 @@ mod tests {
         save_document(&path, &loaded).unwrap();
         let saved = fs::read_to_string(&path).unwrap();
         assert!(saved.contains(r#""strategy": "future-layout""#));
+    }
+
+    #[test]
+    fn save_document_removes_orphan_layout_records() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("doc.siwei.json");
+        let mut doc = sample_doc("Orphans", "child_a");
+        doc.mind_map_layout = Some(serde_json::from_value(serde_json::json!({
+            "engineVersion": 3,
+            "strategy": "free-canvas",
+            "nodes": {
+                "root_child_a": {
+                    "position": { "x": 0, "y": 0 },
+                    "source": "manual",
+                    "locked": true
+                },
+                "child_a": {
+                    "position": { "x": 120, "y": 80 },
+                    "source": "incremental",
+                    "locked": false
+                },
+                "orphan": {
+                    "position": { "x": 999, "y": 999 },
+                    "source": "manual",
+                    "locked": true
+                }
+            }
+        }))
+        .unwrap());
+
+        save_document(&path, &doc).unwrap();
+        let saved = fs::read_to_string(&path).unwrap();
+
+        assert!(saved.contains(r#""child_a""#));
+        assert!(!saved.contains(r#""orphan""#));
     }
 
     #[test]
