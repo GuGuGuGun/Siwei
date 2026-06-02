@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { OutlineNode } from '../types/document'
-import { moveNodeToParentIndexAtPath } from './tree'
+import {
+  adjustTargetPathAfterNodeRemoval,
+  findNodeById,
+  getNodeAtPath,
+  isTreePathPrefix,
+  moveNodeToParentIndexAtPath,
+} from './tree'
 
 function node(id: string, children: OutlineNode[] = []): OutlineNode {
   return {
@@ -68,5 +74,40 @@ describe('tree moveNodeToParentIndexAtPath', () => {
     expect(moveNodeToParentIndexAtPath(root, [9], [], 0)).toBe(root)
     expect(moveNodeToParentIndexAtPath(root, [0], [9], 0)).toBe(root)
     expect(moveNodeToParentIndexAtPath(root, [0], [], -1)).toBe(root)
+  })
+})
+
+describe('tree id-based adapters', () => {
+  it('finds a node and its index path by id', () => {
+    const root = node('root', [node('a', [node('a1'), node('a2')]), node('b')])
+
+    expect(findNodeById(root, 'a2')).toEqual({
+      node: root.children[0].children[1],
+      path: [0, 1],
+    })
+    expect(findNodeById(root, 'missing')).toBeNull()
+  })
+
+  it('returns a node by path and rejects invalid paths', () => {
+    const root = node('root', [node('a', [node('a1')]), node('b')])
+
+    expect(getNodeAtPath(root, [])).toBe(root)
+    expect(getNodeAtPath(root, [0, 0])).toBe(root.children[0].children[0])
+    expect(getNodeAtPath(root, [0, 9])).toBeNull()
+    expect(getNodeAtPath(root, [-1])).toBeNull()
+  })
+
+  it('checks tree path ancestry without treating siblings as descendants', () => {
+    expect(isTreePathPrefix([0], [0, 1])).toBe(true)
+    expect(isTreePathPrefix([0], [0])).toBe(true)
+    expect(isTreePathPrefix([0, 1], [0])).toBe(false)
+    expect(isTreePathPrefix([0], [1, 0])).toBe(false)
+  })
+
+  it('adjusts a target parent path after removing an earlier source node', () => {
+    expect(adjustTargetPathAfterNodeRemoval([0], [1])).toEqual([0])
+    expect(adjustTargetPathAfterNodeRemoval([1], [0])).toEqual([0])
+    expect(adjustTargetPathAfterNodeRemoval([0, 1], [0, 2, 0])).toEqual([0, 1, 0])
+    expect(adjustTargetPathAfterNodeRemoval([0, 1], [1, 0])).toEqual([1, 0])
   })
 })

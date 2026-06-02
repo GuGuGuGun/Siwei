@@ -5,6 +5,11 @@ interface TreeFilterState {
   checked: 'all' | 'checked' | 'unchecked' | 'task'
 }
 
+export interface LocatedTreeNode {
+  node: OutlineNode
+  path: number[]
+}
+
 /**
  * Finds the index path (e.g. [1, 0, 2]) to the node with the target ID.
  * Returns null if not found.
@@ -14,6 +19,19 @@ export function findPath(root: OutlineNode, targetId: string, currentPath: numbe
   for (let i = 0; i < root.children.length; i++) {
     const path = findPath(root.children[i], targetId, [...currentPath, i]);
     if (path) return path;
+  }
+  return null;
+}
+
+/**
+ * Finds a node and its index path by id. This is the id-based adapter for
+ * callers that should not duplicate recursive tree traversal.
+ */
+export function findNodeById(root: OutlineNode, targetId: string, currentPath: number[] = []): LocatedTreeNode | null {
+  if (root.id === targetId) return { node: root, path: currentPath };
+  for (let i = 0; i < root.children.length; i++) {
+    const found = findNodeById(root.children[i], targetId, [...currentPath, i]);
+    if (found) return found;
   }
   return null;
 }
@@ -250,9 +268,11 @@ const arePathsEqual = (left: number[], right: number[]): boolean => {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-const isPathPrefix = (parent: number[], child: number[]): boolean => {
+export const isTreePathPrefix = (parent: number[], child: number[]): boolean => {
   return parent.length <= child.length && parent.every((value, index) => value === child[index]);
 }
+
+const isPathPrefix = isTreePathPrefix
 
 const isValidPath = (root: OutlineNode, path: number[]): boolean => {
   let node = root;
@@ -263,7 +283,7 @@ const isValidPath = (root: OutlineNode, path: number[]): boolean => {
   return true;
 }
 
-const getNodeAtPath = (root: OutlineNode, path: number[]): OutlineNode | null => {
+export const getNodeAtPath = (root: OutlineNode, path: number[]): OutlineNode | null => {
   let node = root;
   for (const index of path) {
     if (index < 0 || index >= node.children.length) return null;
@@ -272,7 +292,7 @@ const getNodeAtPath = (root: OutlineNode, path: number[]): OutlineNode | null =>
   return node;
 }
 
-const adjustTargetParentPathAfterRemoval = (
+export const adjustTargetPathAfterNodeRemoval = (
   sourcePath: number[],
   targetParentPath: number[],
 ): number[] => {
@@ -289,6 +309,8 @@ const adjustTargetParentPathAfterRemoval = (
   adjustedPath[affectedDepth] = targetIndexAtDepth - 1;
   return adjustedPath;
 }
+
+const adjustTargetParentPathAfterRemoval = adjustTargetPathAfterNodeRemoval
 
 /**
  * Moves a node to a target parent's child index. Supports cross-level moves and

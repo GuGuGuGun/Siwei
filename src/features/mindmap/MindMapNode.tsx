@@ -3,6 +3,7 @@ import { Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { Handle, NodeProps, Position } from 'reactflow'
 import { MindMapInlineEditor } from './MindMapInlineEditor'
 import type { AgentNodePreview } from '../agent/agentTypes'
+import { OutlineInlineContent } from '../outline/OutlineInlineContent'
 
 export interface MindMapNodeData {
   label: string
@@ -143,7 +144,11 @@ export const MindMapNode: React.FC<NodeProps<MindMapNodeData>> = ({ id, data, se
                         ? 'font-semibold text-zinc-800'
                         : 'font-medium text-zinc-700'
               }`}>
-                {data.label || <span className="font-normal italic text-zinc-400">空白节点</span>}
+                {data.label ? (
+                  <OutlineInlineContent text={data.label} />
+                ) : (
+                  <span className="font-normal italic text-zinc-400">空白节点</span>
+                )}
               </div>
               {agentTextPreview && (
                 <div className="break-words text-xs font-semibold leading-relaxed text-emerald-700">

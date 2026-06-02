@@ -6,6 +6,7 @@ import {
   filterVisibleTree,
   findNodePath,
   normalizeTagList,
+  summarizeTaskCompletion,
 } from './filterUtils'
 
 describe('filterUtils', () => {
@@ -72,6 +73,34 @@ describe('filterUtils', () => {
 
     expect(result.nodes.map((item) => item.node.id)).toEqual(['plan', 'api'])
     expect([...result.matchingNodeIds]).toEqual(['api'])
+  })
+
+  it('summarizes task completion in the current filtered range', () => {
+    expect(
+      summarizeTaskCompletion(root, {
+        query: '验收',
+        tag: '工作',
+        checked: 'all',
+      }),
+    ).toEqual({
+      total: 1,
+      done: 1,
+      undone: 0,
+      rate: 1,
+    })
+
+    expect(
+      summarizeTaskCompletion(root, {
+        query: '不存在',
+        tag: null,
+        checked: 'all',
+      }),
+    ).toEqual({
+      total: 0,
+      done: 0,
+      undone: 0,
+      rate: 0,
+    })
   })
 
   it('returns node object path from root to target', () => {

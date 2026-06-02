@@ -1,8 +1,11 @@
 pub mod agent_service;
 pub mod agent;
+pub mod agent_tool_executor;
+pub mod agent_tool_host;
 pub mod agent_tools_service;
 pub mod file_service;
 pub mod library_service;
+pub mod library;
 pub mod markdown_export;
 pub mod markdown_parser;
 pub mod recent_service;

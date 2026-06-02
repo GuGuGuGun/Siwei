@@ -12,6 +12,11 @@ use crate::{
                 openai_compatible::{to_openai_tools, OpenAiStreamParser},
             },
             protocol::{AgentStreamEvent, AgentToolCall},
+            sse::SseDecoder,
+            tool_messages::{
+                claude_assistant_tool_call_message, claude_tool_result_message,
+                openai_assistant_tool_call_message, openai_tool_result_message,
+            },
             tools::{canonical_tool_name, siwei_tool_definitions},
         },
         agent_service,
@@ -150,9 +155,9 @@ async fn run_claude_turn(app: &tauri::AppHandle, request: AgentRuntimeRequest) -
         // Claude 协议要求 tool_result 作为下一条 user 消息返回，因此与 OpenAI 的历史结构分开构造。
         messages.push(claude_assistant_tool_call_message(&outcome.tool_calls));
         messages.push(claude_tool_result_message(
-            app,
             &outcome.tool_calls,
             &request.document_context,
+            |call, document_context| execute_tool_call(app, call, document_context),
         )?);
     }
 
@@ -293,81 +298,6 @@ fn execute_tool_call(
         .unwrap_or_else(|| json!({ "accepted": true })))
 }
 
-fn openai_assistant_tool_call_message(tool_calls: &[AgentToolCall]) -> Value {
-    json!({
-        "role": "assistant",
-        "content": null,
-        "tool_calls": tool_calls
-            .iter()
-            .map(openai_tool_call_history_item)
-            .collect::<Vec<_>>(),
-    })
-}
-
-fn openai_tool_call_history_item(call: &AgentToolCall) -> Value {
-    let mut item = json!({
-        "id": call.id,
-        "type": "function",
-        "function": {
-            "name": call.name,
-            "arguments": call.arguments.to_string(),
-        }
-    });
-
-    if let Some(extra_content) = call.extra_content.clone() {
-        item["extra_content"] = extra_content;
-    }
-
-    item
-}
-
-fn openai_tool_result_message(call: &AgentToolCall, result: Value) -> Value {
-    json!({
-        "role": "tool",
-        "tool_call_id": call.id,
-        "content": result.to_string(),
-    })
-}
-
-fn claude_assistant_tool_call_message(tool_calls: &[AgentToolCall]) -> Value {
-    json!({
-        "role": "assistant",
-        "content": tool_calls
-            .iter()
-            .map(|call| {
-                json!({
-                    "id": call.id,
-                    "type": "tool_use",
-                    "name": call.name,
-                    "input": call.arguments,
-                })
-            })
-            .collect::<Vec<_>>(),
-    })
-}
-
-fn claude_tool_result_message(
-    app: &tauri::AppHandle,
-    tool_calls: &[AgentToolCall],
-    document_context: &AgentDocumentContext,
-) -> AppResult<Value> {
-    let mut content = Vec::new();
-
-    for call in tool_calls {
-        let result = execute_tool_call(app, call, document_context)?;
-        content.push(json!({
-            "type": "tool_result",
-            "tool_use_id": call.id,
-            "content": result.to_string(),
-        }));
-    }
-
-    Ok(json!({
-        "role": "user",
-        "content": content,
-    }))
-}
-
 fn build_user_prompt(message: &str, context: &AgentDocumentContext) -> AppResult<String> {
     let context_json = serde_json::to_string(context)
         .map_err(|error| AppError::JsonParse(format!("序列化 Agent 文档上下文失败: {error}")))?;
@@ -389,68 +319,9 @@ fn join_url(base_url: &str, path: &str) -> String {
     )
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SseEvent {
-    event_name: String,
-    data: String,
-}
-
-#[derive(Debug, Default)]
-struct SseDecoder {
-    buffer: String,
-    event_name: String,
-    data_lines: Vec<String>,
-}
-
-impl SseDecoder {
-    fn push_chunk(&mut self, chunk: &[u8]) -> AppResult<Vec<SseEvent>> {
-        self.buffer.push_str(&String::from_utf8_lossy(chunk));
-        let mut events = Vec::new();
-
-        // SSE 事件可能跨 TCP chunk 到达，因此缓存半行并只在空行出现时产出完整事件。
-        while let Some(newline_index) = self.buffer.find('\n') {
-            let mut line = self.buffer[..newline_index].to_string();
-            if line.ends_with('\r') {
-                line.pop();
-            }
-            self.buffer.replace_range(..=newline_index, "");
-
-            if line.is_empty() {
-                if !self.data_lines.is_empty() {
-                    events.push(SseEvent {
-                        event_name: if self.event_name.is_empty() {
-                            "message".to_string()
-                        } else {
-                            std::mem::take(&mut self.event_name)
-                        },
-                        data: self.data_lines.join("\n"),
-                    });
-                    self.data_lines.clear();
-                }
-                continue;
-            }
-
-            if let Some(value) = line.strip_prefix("event:") {
-                self.event_name = value.trim().to_string();
-            } else if let Some(value) = line.strip_prefix("data:") {
-                self.data_lines.push(value.trim_start().to_string());
-            }
-        }
-
-        Ok(events)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
-    use crate::services::agent::protocol::AgentToolCall;
-
-    use super::{
-        claude_assistant_tool_call_message, join_url, openai_assistant_tool_call_message,
-        openai_tool_result_message, SseDecoder,
-    };
+    use super::join_url;
 
     #[test]
     fn joins_provider_url_without_double_slash() {
@@ -460,81 +331,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn decodes_sse_events_across_chunks() {
-        let mut decoder = SseDecoder::default();
-
-        assert!(decoder.push_chunk(b"event: message_delta\ndata: {\"a\"").unwrap().is_empty());
-        let events = decoder.push_chunk(br#":1}
-
-"#).unwrap();
-
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_name, "message_delta");
-        assert_eq!(events[0].data, r#"{"a":1}"#);
-    }
-
-    #[test]
-    fn builds_openai_tool_messages_for_follow_up_round() {
-        let call = AgentToolCall {
-            id: "call_1".to_string(),
-            name: "library.search".to_string(),
-            arguments: json!({ "query": "计划" }),
-            extra_content: None,
-        };
-
-        let assistant_message = openai_assistant_tool_call_message(std::slice::from_ref(&call));
-        let tool_message = openai_tool_result_message(&call, json!({ "matches": [] }));
-
-        assert_eq!(assistant_message["role"], "assistant");
-        assert_eq!(assistant_message["tool_calls"][0]["id"], "call_1");
-        assert_eq!(
-            assistant_message["tool_calls"][0]["function"]["arguments"],
-            r#"{"query":"计划"}"#
-        );
-        assert_eq!(tool_message["role"], "tool");
-        assert_eq!(tool_message["tool_call_id"], "call_1");
-        assert_eq!(tool_message["content"], r#"{"matches":[]}"#);
-    }
-
-    #[test]
-    fn keeps_openai_provider_extra_content_in_tool_call_history() {
-        let call = AgentToolCall {
-            id: "call_1".to_string(),
-            name: "mindmap.insert_nodes".to_string(),
-            arguments: json!({ "documentId": "doc" }),
-            extra_content: Some(json!({
-                "google": {
-                    "thought_signature": "sig-1"
-                }
-            })),
-        };
-
-        let assistant_message = openai_assistant_tool_call_message(&[call]);
-
-        assert_eq!(
-            assistant_message["tool_calls"][0]["extra_content"]["google"]["thought_signature"],
-            "sig-1"
-        );
-    }
-
-    #[test]
-    fn builds_claude_tool_use_message_for_follow_up_round() {
-        let call = AgentToolCall {
-            id: "toolu_1".to_string(),
-            name: "library.search".to_string(),
-            arguments: json!({ "query": "计划" }),
-            extra_content: None,
-        };
-
-        let assistant_message = claude_assistant_tool_call_message(&[call]);
-
-        assert_eq!(assistant_message["role"], "assistant");
-        assert_eq!(assistant_message["content"][0]["type"], "tool_use");
-        assert_eq!(assistant_message["content"][0]["id"], "toolu_1");
-        assert_eq!(
-            assistant_message["content"][0]["input"],
-            json!({ "query": "计划" })
-        );
-    }
 }

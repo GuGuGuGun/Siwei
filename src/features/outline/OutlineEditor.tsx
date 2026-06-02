@@ -1,7 +1,7 @@
 import React from 'react'
 import { useDocumentStore } from '../document/documentStore'
 import { OutlineNodeItem } from './OutlineNodeItem'
-import { filterVisibleTree } from '../filter/filterUtils'
+import { filterVisibleTree, summarizeTaskCompletion } from '../filter/filterUtils'
 import { FileText, Plus } from 'lucide-react'
 import { NodeContextMenu } from '../document/NodeContextMenu'
 import { NodeDeleteDialog } from '../document/NodeDeleteDialog'
@@ -13,13 +13,18 @@ import { useAgentStore } from '../agent/agentStore'
 export const OutlineEditor: React.FC = () => {
   const currentDoc = useDocumentStore((s) => s.currentDoc)
   const selectedNodeId = useDocumentStore((s) => s.selectedNodeId)
+  const outlineSelection = useDocumentStore((s) => s.outlineSelection)
   const collapsedNodeIds = useDocumentStore((s) => s.collapsedNodeIds)
   const filter = useDocumentStore((s) => s.filter)
   const pendingAgentPlan = useAgentStore((s) => s.pendingPlan)
   
   const selectNode = useDocumentStore((s) => s.selectNode)
+  const setOutlineSelection = useDocumentStore((s) => s.setOutlineSelection)
   const updateNodeText = useDocumentStore((s) => s.updateNodeText)
   const insertNode = useDocumentStore((s) => s.insertNode)
+  const moveSelectedOutlineNodes = useDocumentStore((s) => s.moveSelectedOutlineNodes)
+  const indentSelectedOutlineNodes = useDocumentStore((s) => s.indentSelectedOutlineNodes)
+  const outdentSelectedOutlineNodes = useDocumentStore((s) => s.outdentSelectedOutlineNodes)
   const beginTextEditSession = useDocumentStore((s) => s.beginTextEditSession)
   const commitTextEditSession = useDocumentStore((s) => s.commitTextEditSession)
   const getNodeOperationState = useDocumentStore((s) => s.getNodeOperationState)
@@ -48,6 +53,11 @@ export const OutlineEditor: React.FC = () => {
     return filterVisibleTree(currentDoc.root, collapsedNodeIds, filter).nodes
   }, [currentDoc, collapsedNodeIds, filter])
 
+  const taskSummary = React.useMemo(() => {
+    if (!currentDoc) return null
+    return summarizeTaskCompletion(currentDoc.root, filter)
+  }, [currentDoc, filter])
+
   const agentPreview = React.useMemo(
     () => createAgentDocumentPreview(pendingAgentPlan),
     [pendingAgentPlan],
@@ -65,6 +75,47 @@ export const OutlineEditor: React.FC = () => {
     } else if (direction === 'down' && index < visibleNodes.length - 1) {
       selectNode(visibleNodes[index + 1].node.id)
     }
+  }
+
+  const handleNodeClick = (event: React.MouseEvent, nodeId: string) => {
+    if (!event.shiftKey) {
+      selectNode(nodeId)
+      return
+    }
+
+    const anchorNodeId = outlineSelection.anchorNodeId ?? selectedNodeId ?? nodeId
+    const anchorIndex = visibleNodes.findIndex((item) => item.node.id === anchorNodeId)
+    const focusIndex = visibleNodes.findIndex((item) => item.node.id === nodeId)
+    if (anchorIndex === -1 || focusIndex === -1) {
+      selectNode(nodeId)
+      return
+    }
+
+    const [start, end] = anchorIndex < focusIndex ? [anchorIndex, focusIndex] : [focusIndex, anchorIndex]
+    setOutlineSelection({
+      anchorNodeId,
+      selectedNodeIds: visibleNodes.slice(start, end + 1).map((item) => item.node.id),
+    })
+  }
+
+  const selectedVisibleNodeIds = outlineSelection.selectedNodeIds.filter((nodeId) =>
+    visibleNodes.some((item) => item.node.id === nodeId),
+  )
+  const hasMultiSelection = selectedVisibleNodeIds.length > 1
+
+  const runBatchMove = (direction: 'up' | 'down') => {
+    if (!hasMultiSelection) return false
+    return moveSelectedOutlineNodes(selectedVisibleNodeIds, direction)
+  }
+
+  const runBatchIndent = () => {
+    if (!hasMultiSelection) return false
+    return indentSelectedOutlineNodes(selectedVisibleNodeIds)
+  }
+
+  const runBatchOutdent = () => {
+    if (!hasMultiSelection) return false
+    return outdentSelectedOutlineNodes(selectedVisibleNodeIds)
   }
 
   if (!currentDoc) {
@@ -108,6 +159,33 @@ export const OutlineEditor: React.FC = () => {
         />
       </div>
 
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+        {taskSummary && (
+          <div className="rounded-md border border-amber-900/10 bg-[#FAF8F5] px-2.5 py-1">
+            {taskSummary.total > 0
+              ? `已完成 ${taskSummary.done}/${taskSummary.total}`
+              : '当前范围内没有待办'}
+          </div>
+        )}
+        {hasMultiSelection && (
+          <div className="flex items-center gap-1.5 rounded-md border border-amber-900/10 bg-[#FAF8F5] px-2.5 py-1">
+            <span>{`已选择 ${selectedVisibleNodeIds.length} 个节点`}</span>
+            <button type="button" onClick={() => runBatchMove('up')} className="rounded px-1.5 hover:bg-[#EFECE3]">
+              上移
+            </button>
+            <button type="button" onClick={() => runBatchMove('down')} className="rounded px-1.5 hover:bg-[#EFECE3]">
+              下移
+            </button>
+            <button type="button" onClick={runBatchIndent} className="rounded px-1.5 hover:bg-[#EFECE3]">
+              缩进
+            </button>
+            <button type="button" onClick={runBatchOutdent} className="rounded px-1.5 hover:bg-[#EFECE3]">
+              提升
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Visible Node List */}
       <div className="flex-1 flex flex-col gap-1 pb-40">
         {visibleNodes.map((item) => (
@@ -118,10 +196,15 @@ export const OutlineEditor: React.FC = () => {
             path={item.path}
             parentId={item.parentId}
             isSelected={selectedNodeId === item.node.id}
+            isMultiSelected={selectedVisibleNodeIds.includes(item.node.id)}
             isCollapsed={collapsedNodeIds.has(item.node.id)}
             agentPreview={agentPreview.nodePreviews.get(item.node.id)}
             agentInsertions={agentPreview.insertionsByParentId.get(item.node.id) ?? []}
             onNavigate={(dir) => handleNavigate(item.node.id, dir)}
+            onNodeClick={handleNodeClick}
+            onBatchMove={runBatchMove}
+            onBatchIndent={runBatchIndent}
+            onBatchOutdent={runBatchOutdent}
             onNodeContextMenu={(event, nodeId) => openContextMenu(nodeId, event.clientX, event.clientY)}
           />
         ))}

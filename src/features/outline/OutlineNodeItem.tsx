@@ -4,6 +4,13 @@ import { useDocumentStore } from '../document/documentStore'
 import { toast } from '../../components/common/Toast'
 import { NodeNoteEditor } from './NodeNoteEditor'
 import { NodeTagEditor } from './NodeTagEditor'
+import { AgentInsertionPreviewRows } from './components/AgentInsertionPreviewRows'
+import { ButtonToggle, KnitGrip } from './components/OutlineNodeControls'
+import { OutlineNodeTextContent } from './components/OutlineNodeTextContent'
+import { SlashCommandMenu } from './components/SlashCommandMenu'
+import { useNodeDragDrop } from './hooks/useNodeDragDrop'
+import { useNodeKeyboardHandling } from './hooks/useNodeKeyboardHandling'
+import { useSlashCommandMenu } from './hooks/useSlashCommandMenu'
 import type { AgentInsertionPreview, AgentNodePreview } from '../agent/agentTypes'
 
 interface OutlineNodeItemProps {
@@ -12,71 +19,31 @@ interface OutlineNodeItemProps {
   path: number[]
   parentId: string | null
   isSelected: boolean
+  isMultiSelected?: boolean
   isCollapsed: boolean
   agentPreview?: AgentNodePreview
   agentInsertions?: AgentInsertionPreview[]
   onNavigate: (direction: 'up' | 'down') => void
+  onNodeClick?: (event: React.MouseEvent, nodeId: string) => void
+  onBatchMove?: (direction: 'up' | 'down') => boolean
+  onBatchIndent?: () => boolean
+  onBatchOutdent?: () => boolean
   onNodeContextMenu?: (event: React.MouseEvent, nodeId: string) => void
-}
-
-// 4-hole Bone Button Fold Toggle
-const ButtonToggle: React.FC<{ isCollapsed: boolean; onClick: () => void }> = ({
-  isCollapsed,
-  onClick,
-}) => {
-  return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation()
-        onClick()
-      }}
-      className="relative flex h-4 w-4 items-center justify-center rounded-full border border-amber-900/25 bg-[#FAF6EC] shadow-sm hover:scale-105 active:scale-95 transition-all focus:outline-none"
-      title={isCollapsed ? '展开' : '折叠'}
-    >
-      {/* 4 Tiny Holes */}
-      <span className="absolute inset-0 flex items-center justify-center gap-1.5 flex-wrap p-0.5 opacity-40">
-        <span className="w-0.5 h-0.5 rounded-full bg-amber-950" />
-        <span className="w-0.5 h-0.5 rounded-full bg-amber-950" />
-        <span className="w-0.5 h-0.5 rounded-full bg-amber-950" />
-        <span className="w-0.5 h-0.5 rounded-full bg-amber-950" />
-      </span>
-      {/* Intersecting thread stitches (rotates depending on collapse) */}
-      <span
-        className={`absolute w-2 h-[1px] bg-amber-850/80 transition-transform duration-200 ${
-          isCollapsed ? 'rotate-45' : '-rotate-45'
-        }`}
-      />
-      <span
-        className={`absolute w-2 h-[1px] bg-amber-850/80 transition-transform duration-200 ${
-          isCollapsed ? '-rotate-45' : 'rotate-45'
-        }`}
-      />
-    </button>
-  )
-}
-
-// 6-dot Knit Grip Handle
-const KnitGrip: React.FC = () => {
-  return (
-    <div className="grid grid-cols-2 gap-[2px] p-0.5 opacity-30 group-hover:opacity-60 transition-opacity">
-      <div className="w-0.5 h-0.5 rounded-full bg-amber-900" />
-      <div className="w-0.5 h-0.5 rounded-full bg-amber-900" />
-      <div className="w-0.5 h-0.5 rounded-full bg-amber-900" />
-      <div className="w-0.5 h-0.5 rounded-full bg-amber-900" />
-      <div className="w-0.5 h-0.5 rounded-full bg-amber-900" />
-      <div className="w-0.5 h-0.5 rounded-full bg-amber-900" />
-    </div>
-  )
 }
 
 export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   node,
   depth,
   isSelected,
+  isMultiSelected = false,
   isCollapsed,
   agentPreview,
   agentInsertions = [],
   onNavigate,
+  onNodeClick,
+  onBatchMove,
+  onBatchIndent,
+  onBatchOutdent,
   onNodeContextMenu,
 }) => {
   const selectNode = useDocumentStore((s) => s.selectNode)
@@ -97,17 +64,18 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   const containerRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const [isComposing, setIsComposing] = React.useState(false)
-  
-  // Slash command menu states
-  const [showSlashMenu, setShowSlashMenu] = React.useState(false)
-  const [slashMenuIndex, setSlashMenuIndex] = React.useState(0)
-
-  const slashCommands = [
-    { key: 'todo', label: '待办列表', desc: '添加或切换待办选项', shortcut: 'Ctrl+Enter' },
-    { key: 'indent', label: '向内缩进', desc: '将节点向右缩进一级', shortcut: 'Tab' },
-    { key: 'outdent', label: '向外缩进', desc: '将节点向左提升一级', shortcut: 'Shift+Tab' },
-    { key: 'delete', label: '删除节点', desc: '完全移除此节点', shortcut: 'Backspace' },
-  ]
+  const slashMenu = useSlashCommandMenu()
+  const {
+    activeCommand,
+    activeIndex,
+    close: closeSlashMenu,
+    commands: slashCommands,
+    isOpen: showSlashMenu,
+    moveNext: moveSlashMenuNext,
+    movePrevious: moveSlashMenuPrevious,
+    open: openSlashMenu,
+  } = slashMenu
+  const hasChildren = node.children && node.children.length > 0
 
   // Focus caret restoration
   React.useEffect(() => {
@@ -116,16 +84,16 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
       const val = inputRef.current.value
       inputRef.current.setSelectionRange(val.length, val.length)
     } else {
-      setShowSlashMenu(false)
+      closeSlashMenu()
     }
-  }, [isSelected])
+  }, [closeSlashMenu, isSelected])
 
   React.useEffect(() => {
     if (!isFocusedNode) return
     containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [isFocusedNode])
 
-  const executeSlashCommand = (key: string) => {
+  const executeSlashCommand = React.useCallback((key: string) => {
     // 1. Remove the '/' from text if present
     if (inputRef.current) {
       const val = inputRef.current.value
@@ -152,104 +120,34 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
         break
     }
 
-    setShowSlashMenu(false)
-  }
+    closeSlashMenu()
+  }, [closeSlashMenu, deleteNode, indentNode, node.id, outdentNode, toggleNodeChecked, updateNodeText])
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (isComposing) return
-
-    // If slash menu is visible, intercept menu controls
-    if (showSlashMenu) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setSlashMenuIndex((prev) => (prev + 1) % slashCommands.length)
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setSlashMenuIndex((prev) => (prev - 1 + slashCommands.length) % slashCommands.length)
-        return
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        executeSlashCommand(slashCommands[slashMenuIndex].key)
-        return
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setShowSlashMenu(false)
-        return
-      }
-    }
-
-    switch (e.key) {
-      case 'Enter': {
-        e.preventDefault()
-        const target = e.currentTarget
-        const selectionStart = target.selectionStart ?? 0
-        const text = target.value
-
-        const beforeText = text.substring(0, selectionStart)
-        const afterText = text.substring(selectionStart)
-
-        updateNodeText(node.id, beforeText)
-        insertNode(node.id, afterText)
-        break
-      }
-      case 'Backspace': {
-        const target = e.currentTarget
-        const selectionStart = target.selectionStart ?? 0
-        const text = target.value
-
-        if (text === '') {
-          e.preventDefault()
-          deleteNode(node.id)
-        } else if (selectionStart === 0) {
-          e.preventDefault()
-          outdentNode(node.id)
-        }
-        break
-      }
-      case 'Tab': {
-        e.preventDefault()
-        if (e.shiftKey) {
-          outdentNode(node.id)
-        } else {
-          indentNode(node.id)
-        }
-        break
-      }
-      case 'ArrowUp': {
-        e.preventDefault()
-        if (e.ctrlKey || e.metaKey) {
-          moveNode(node.id, 'up')
-        } else {
-          onNavigate('up')
-        }
-        break
-      }
-      case 'ArrowDown': {
-        e.preventDefault()
-        if (e.ctrlKey || e.metaKey) {
-          moveNode(node.id, 'down')
-        } else {
-          onNavigate('down')
-        }
-        break
-      }
-      case 'Escape': {
-        e.preventDefault()
-        selectNode(null)
-        break
-      }
-      default:
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-          e.preventDefault()
-          toggleNodeChecked(node.id)
-        }
-        break
-    }
-  }
+  const handleKeyDown = useNodeKeyboardHandling({
+    nodeId: node.id,
+    hasChildren,
+    isCollapsed,
+    isComposing,
+    isSlashMenuOpen: showSlashMenu,
+    activeSlashCommand: activeCommand,
+    onSlashMenuNext: moveSlashMenuNext,
+    onSlashMenuPrevious: moveSlashMenuPrevious,
+    onSlashMenuClose: closeSlashMenu,
+    onSlashCommand: executeSlashCommand,
+    onSelectNone: () => selectNode(null),
+    onUpdateText: updateNodeText,
+    onInsertNode: insertNode,
+    onDeleteNode: deleteNode,
+    onIndentNode: indentNode,
+    onOutdentNode: outdentNode,
+    onMoveNode: moveNode,
+    onToggleCollapse: toggleCollapse,
+    onToggleChecked: toggleNodeChecked,
+    onNavigate,
+    onBatchMove,
+    onBatchIndent,
+    onBatchOutdent,
+  })
 
   const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const text = e.target.value
@@ -257,41 +155,20 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
     
     // Check if ends with '/' to open command menu
     if (text.endsWith('/')) {
-      setShowSlashMenu(true)
-      setSlashMenuIndex(0)
+      openSlashMenu()
     } else if (showSlashMenu && !text.includes('/')) {
-      setShowSlashMenu(false)
+      closeSlashMenu()
     }
   }
 
-  const hasChildren = node.children && node.children.length > 0
   const isAgentDeleting = agentPreview?.kind === 'delete'
   const isAgentMoving = agentPreview?.kind === 'move'
   const agentTextPreview = agentPreview?.kind === 'update' ? agentPreview.text : undefined
 
-  const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
-    e.stopPropagation()
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('application/x-siwei-node-id', node.id)
-  }
-
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    const draggedNodeId = e.dataTransfer.types.includes('application/x-siwei-node-id')
-    if (!draggedNodeId) return
-
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-  }
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.stopPropagation()
-
-    const sourceNodeId = e.dataTransfer.getData('application/x-siwei-node-id')
-    if (!sourceNodeId || sourceNodeId === node.id) return
-
-    moveNodeToSibling(sourceNodeId, node.id)
-  }
+  const { handleDragStart, handleDragOver, handleDrop } = useNodeDragDrop({
+    nodeId: node.id,
+    onMoveToSibling: moveNodeToSibling,
+  })
 
   return (
     <>
@@ -305,7 +182,7 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
             ? 'bg-emerald-50/80 border-emerald-200 text-zinc-900 ring-1 ring-emerald-200/70'
           : isAgentMoving
             ? 'bg-sky-50/80 border-sky-200 text-zinc-900 ring-1 ring-sky-200/70'
-          : isSelected
+          : isSelected || isMultiSelected
           ? 'bg-[#FCFAF2] border-dashed border-amber-900/30 text-zinc-900 shadow-fabric'
           : isFocusedNode
             ? 'bg-amber-50 border-amber-300/70 text-zinc-900 shadow-fabric'
@@ -313,7 +190,11 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
       }`}
       onClick={(e) => {
         e.stopPropagation()
-        selectNode(node.id)
+        if (onNodeClick) {
+          onNodeClick(e, node.id)
+        } else {
+          selectNode(node.id)
+        }
       }}
       onContextMenu={(event) => {
         event.preventDefault()
@@ -404,32 +285,13 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
             placeholder="输入编织内容..."
           />
         ) : (
-          <div className="min-w-0">
-            <div
-              className={`text-sm select-none leading-relaxed truncate font-medium ${
-                isAgentDeleting
-                  ? 'text-rose-700 line-through'
-                  : agentTextPreview
-                    ? 'text-zinc-400 line-through'
-                    : node.checked
-                      ? 'text-zinc-400 line-through'
-                      : 'text-zinc-800'
-              }`}
-            >
-              {node.text || <span className="text-zinc-400 italic font-normal">空白织线</span>}
-            </div>
-            {agentTextPreview && (
-              <div className="truncate text-sm font-medium leading-relaxed text-emerald-700">
-                {agentTextPreview}
-              </div>
-            )}
-            {isAgentDeleting && (
-              <div className="text-[10px] font-medium leading-4 text-rose-500">将删除</div>
-            )}
-            {isAgentMoving && (
-              <div className="text-[10px] font-medium leading-4 text-sky-600">将移动</div>
-            )}
-          </div>
+          <OutlineNodeTextContent
+            text={node.text}
+            checked={node.checked}
+            isAgentDeleting={isAgentDeleting}
+            isAgentMoving={isAgentMoving}
+            agentTextPreview={agentTextPreview}
+          />
         )}
       </div>
 
@@ -458,52 +320,18 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
 
       {/* Slash Commands Dropdown washed-paper Menu */}
       {showSlashMenu && isSelected && (
-        <div className="absolute left-16 top-9 z-50 w-60 rounded-xl bg-washed-paper p-1.5 animate-scale-up font-sans text-xs">
-          <div className="px-2.5 py-1 text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-dashed border-amber-900/10 mb-1">
-            织物指令
-          </div>
-          <div className="space-y-0.5">
-            {slashCommands.map((cmd, i) => (
-              <button
-                key={cmd.key}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  executeSlashCommand(cmd.key)
-                }}
-                className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-left transition-colors focus:outline-none ${
-                  i === slashMenuIndex
-                    ? 'bg-[#EFECE3] text-amber-950 font-semibold'
-                    : 'text-zinc-600 hover:bg-[#FAF8F5]'
-                }`}
-              >
-                <div>
-                  <div>{cmd.label}</div>
-                  <div className="text-[10px] text-zinc-400 font-normal mt-0.5">
-                    {cmd.desc}
-                  </div>
-                </div>
-                <kbd className="font-mono text-[9px] text-zinc-400 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-200">
-                  {cmd.shortcut}
-                </kbd>
-              </button>
-            ))}
-          </div>
-        </div>
+        <SlashCommandMenu
+          commands={slashCommands}
+          activeIndex={activeIndex}
+          onCommand={executeSlashCommand}
+        />
       )}
     </div>
-    {agentInsertions.map((insertion) => (
-      <div
-        key={insertion.node.id}
-        data-agent-insertion-parent-id={node.id}
-        className="ml-8 flex h-8 items-center rounded-lg border border-dashed border-emerald-300 bg-emerald-50/70 px-3 text-sm font-medium text-emerald-700"
-        style={{ marginLeft: `${(depth + 1) * 24 + 28}px` }}
-      >
-        <span className="mr-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-          将插入
-        </span>
-        <span className="truncate">{insertion.node.text || '空白节点'}</span>
-      </div>
-    ))}
+    <AgentInsertionPreviewRows
+      depth={depth}
+      parentNodeId={node.id}
+      insertions={agentInsertions}
+    />
     </>
   )
 }

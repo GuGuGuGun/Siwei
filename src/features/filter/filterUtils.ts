@@ -22,6 +22,13 @@ export interface TaskSummary {
   tags: string[]
 }
 
+export interface TaskCompletionSummary {
+  total: number
+  done: number
+  undone: number
+  rate: number
+}
+
 export interface VisibleTreeNode {
   node: OutlineNode
   depth: number
@@ -164,6 +171,26 @@ export function filterVisibleTree(
   return {
     nodes: nodes.sort(compareTreePath),
     matchingNodeIds,
+  }
+}
+
+export function summarizeTaskCompletion(
+  root: OutlineNode,
+  filter: OutlineFilterState = { query: '', tag: null, checked: 'all' },
+): TaskCompletionSummary {
+  const visible = filterVisibleTree(root, new Set(), filter)
+  const tasks = visible.nodes.filter(
+    (item) => visible.matchingNodeIds.has(item.node.id) && item.node.checked !== undefined,
+  )
+  const total = tasks.length
+  const done = tasks.filter((item) => item.node.checked === true).length
+  const undone = total - done
+
+  return {
+    total,
+    done,
+    undone,
+    rate: total === 0 ? 0 : done / total,
   }
 }
 

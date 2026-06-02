@@ -172,6 +172,7 @@ describe('MindMapView', () => {
       redoStack: [],
       cleanSnapshotKey: null,
       activeTextEditSession: null,
+      outlineSelection: { anchorNodeId: null, selectedNodeIds: [] },
     })
     useAgentStore.setState({
       pendingPlan: null,
@@ -208,6 +209,34 @@ describe('MindMapView', () => {
 
     expect(useDocumentStore.getState().currentDoc?.root.children[1].text).toBe('导图重命名')
     expect(screen.queryByDisplayValue('导图重命名')).not.toBeInTheDocument()
+  })
+
+  it('renders inline content in non-editing mind map nodes', () => {
+    useDocumentStore.setState((state) => ({
+      currentDoc: state.currentDoc
+        ? {
+          ...state.currentDoc,
+          root: {
+            ...state.currentDoc.root,
+            children: [
+              {
+                ...state.currentDoc.root.children[0],
+                text: '**粗体** *斜体* `code` $x^2$',
+              },
+            ],
+          },
+        }
+        : state.currentDoc,
+    }))
+
+    render(<MindMapView />)
+
+    const node = screen.getByTestId('mindmap-node-node-1')
+    expect(within(node).getByText('粗体').tagName).toBe('STRONG')
+    expect(within(node).getByText('斜体').tagName).toBe('EM')
+    expect(within(node).getByText('code').tagName).toBe('CODE')
+    expect(within(node).getByText('x^2')).toHaveAttribute('data-inline-latex')
+    expect(node).not.toHaveTextContent('**粗体**')
   })
 
   it('confirms before deleting a node with children', () => {

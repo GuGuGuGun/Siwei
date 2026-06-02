@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createDocument } from '../../test/fixtures'
+import { createDocument, createNode } from '../../test/fixtures'
 import { createDocumentSnapshotKey } from '../agent/agentChangePlan'
 import { useAgentStore } from '../agent/agentStore'
 import { useDocumentStore } from '../document/documentStore'
@@ -26,6 +26,7 @@ describe('OutlineNodeItem', () => {
       redoStack: [],
       cleanSnapshotKey: null,
       activeTextEditSession: null,
+      outlineSelection: { anchorNodeId: null, selectedNodeIds: [] },
     })
     useAgentStore.setState({
       pendingPlan: null,
@@ -166,5 +167,76 @@ describe('OutlineNodeItem', () => {
     expect(screen.getByText('计算器开发')).toBeInTheDocument()
     expect(screen.getByText('将插入')).toBeInTheDocument()
     expect(screen.queryByText('点击缝入第一个节点')).not.toBeInTheDocument()
+  })
+
+  it('splits node text at the caret when pressing Enter', () => {
+    render(<OutlineEditor />)
+
+    const input = screen.getByDisplayValue('第二节点') as HTMLInputElement
+    input.setSelectionRange(1, 1)
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.text)).toEqual([
+      '第一节点',
+      '第',
+      '二节点',
+    ])
+  })
+
+  it('does not split text while IME composition is active', () => {
+    render(<OutlineEditor />)
+
+    const input = screen.getByDisplayValue('第二节点')
+    fireEvent.compositionStart(input)
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.text)).toEqual([
+      '第一节点',
+      '第二节点',
+    ])
+  })
+
+  it('handles collapse shortcuts without changing text input content', () => {
+    render(<OutlineEditor />)
+
+    fireEvent.click(screen.getByText('第一节点'))
+    const firstInput = screen.getByDisplayValue('第一节点')
+    fireEvent.keyDown(firstInput, { key: 'ArrowLeft', ctrlKey: true })
+
+    expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(true)
+
+    fireEvent.keyDown(firstInput, { key: 'ArrowRight', ctrlKey: true })
+    expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(false)
+    expect(firstInput).toHaveValue('第一节点')
+  })
+
+  it('selects a range and moves it with the batch shortcut', () => {
+    useDocumentStore.setState({
+      currentDoc: {
+        ...createDocument(),
+        root: createNode('root', '测试文档', [
+          createNode('node-a', 'A'),
+          createNode('node-b', 'B'),
+          createNode('node-c', 'C'),
+          createNode('node-d', 'D'),
+        ]),
+      },
+      selectedNodeId: 'node-b',
+      outlineSelection: { anchorNodeId: 'node-b', selectedNodeIds: ['node-b'] },
+    })
+
+    render(<OutlineEditor />)
+
+    fireEvent.click(screen.getByText('C'), { shiftKey: true })
+    expect(screen.getByText('已选择 2 个节点')).toBeInTheDocument()
+
+    fireEvent.keyDown(screen.getByDisplayValue('C'), { key: 'ArrowDown', ctrlKey: true })
+
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.text)).toEqual([
+      'A',
+      'D',
+      'B',
+      'C',
+    ])
   })
 })
