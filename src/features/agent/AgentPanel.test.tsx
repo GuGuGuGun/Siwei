@@ -6,6 +6,7 @@ import { useDocumentStore } from '../document/documentStore'
 import { useAgentStore } from './agentStore'
 import { AgentPanel } from './AgentPanel'
 import * as api from '../../services/siweiApi'
+import type { AgentStatus } from './agentTypes'
 
 vi.mock('../../services/siweiApi', () => ({
   agentGetStatus: vi.fn(),
@@ -16,8 +17,22 @@ vi.mock('../../services/siweiApi', () => ({
 
 const apiMock = vi.mocked(api)
 
+function createAgentStatus(overrides: Partial<AgentStatus> = {}): AgentStatus {
+  return {
+    available: true,
+    running: true,
+    streaming: false,
+    sessionKey: 'demo.siwei.json',
+    model: 'gpt-4.1',
+    error: null,
+    events: [],
+    ...overrides,
+  }
+}
+
 describe('AgentPanel', () => {
   beforeEach(() => {
+    vi.useRealTimers()
     vi.clearAllMocks()
     useAgentStore.setState({
       isOpen: true,
@@ -40,28 +55,14 @@ describe('AgentPanel', () => {
       cleanSnapshotKey: null,
       activeTextEditSession: null,
     })
-    apiMock.agentGetStatus.mockResolvedValue({
-      available: true,
-      running: true,
-      streaming: false,
-      sessionKey: 'demo.siwei.json',
-      model: 'gpt-4.1',
-      error: null,
-    })
+    apiMock.agentGetStatus.mockResolvedValue(createAgentStatus())
     apiMock.agentStartSession.mockResolvedValue(undefined)
     apiMock.agentSendMessage.mockResolvedValue(undefined)
     apiMock.agentAbort.mockResolvedValue(undefined)
   })
 
   it('sends the current document context through the agent API', async () => {
-    apiMock.agentGetStatus.mockResolvedValue({
-      available: true,
-      running: true,
-      streaming: true,
-      sessionKey: 'demo.siwei.json',
-      model: 'gpt-4.1',
-      error: null,
-    })
+    apiMock.agentGetStatus.mockResolvedValue(createAgentStatus({ streaming: true }))
     render(<AgentPanel />)
 
     fireEvent.change(screen.getByPlaceholderText('询问当前文档'), {
@@ -116,6 +117,29 @@ describe('AgentPanel', () => {
 
     expect(useDocumentStore.getState().currentDoc?.root.children[1].text).toBe('助理改写')
     expect(useDocumentStore.getState().canUndo).toBe(true)
+  })
+
+  it('renders assistant messages as lightweight markdown', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          text: [
+            '你想怎么调整当前思维导图？',
+            '1. **新增节点**：添加内容',
+            '2. **整体优化结构**：细化复习框架',
+          ].join('\n'),
+          createdAt: Date.now(),
+        },
+      ],
+    })
+
+    render(<AgentPanel />)
+
+    expect(screen.getByRole('list').tagName).toBe('OL')
+    expect(screen.getByText('新增节点').tagName).toBe('STRONG')
+    expect(screen.queryByText(/\*\*新增节点\*\*/)).not.toBeInTheDocument()
   })
 
   it('requires a second confirmation before applying high-risk delete plans', () => {
@@ -212,7 +236,7 @@ describe('AgentPanel', () => {
     })
 
     expect(useDocumentStore.getState().currentDoc?.root.children).toHaveLength(2)
-    expect(screen.getAllByText('待确认插入 1 个节点')).toHaveLength(2)
+    expect(screen.getAllByText('待确认插入 1 个主题，包含 1 个子节点')).toHaveLength(2)
     expect(screen.getByRole('button', { name: '确认插入' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '撤回' })).toBeInTheDocument()
     expect(useAgentStore.getState().pendingPlan?.operations[0]).toMatchObject({
@@ -230,6 +254,7 @@ describe('AgentPanel', () => {
     })
     expect(useDocumentStore.getState().canUndo).toBe(true)
     expect(useAgentStore.getState().pendingPlan).toBeNull()
+    expect(screen.getByText('已插入 1 个主题，包含 1 个子节点')).toBeInTheDocument()
   })
 
   it('withdraws mind map tool call previews without changing the document', () => {
@@ -534,6 +559,103 @@ describe('AgentPanel', () => {
       riskLevel: 'low',
       references: [{ sourceType: 'currentDocument' }],
     })
+  })
+
+  it('renders final assistant message text when streaming deltas were not delivered', () => {
+    render(<AgentPanel />)
+
+    act(() => {
+      useAgentStore.setState({ isSending: true })
+      useAgentStore.getState().handleRpcEvent?.(JSON.stringify({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: '我已经生成了思维导图建议。',
+            },
+          ],
+        },
+      }))
+    })
+
+    expect(screen.getByText('我已经生成了思维导图建议。')).toBeInTheDocument()
+    expect(useAgentStore.getState().isSending).toBe(false)
+  })
+
+  it('recovers missed assistant events from polled status', async () => {
+    apiMock.agentGetStatus.mockResolvedValue(createAgentStatus({
+      streaming: false,
+      events: [
+        {
+          id: 1,
+          payload: JSON.stringify({
+            type: 'message_update',
+            eventId: 1,
+            assistantMessageEvent: {
+              type: 'text_delta',
+              delta: '轮询恢复的回复',
+            },
+          }),
+        },
+        {
+          id: 2,
+          payload: JSON.stringify({
+            type: 'agent_end',
+            eventId: 2,
+          }),
+        },
+      ],
+    }))
+    render(<AgentPanel />)
+
+    fireEvent.change(screen.getByPlaceholderText('询问当前文档'), {
+      target: { value: '你好' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    await waitFor(() => expect(apiMock.agentSendMessage).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByText('轮询恢复的回复')).toBeInTheDocument())
+    expect(useAgentStore.getState().isSending).toBe(false)
+  })
+
+  it('does not duplicate final assistant message text already rendered from deltas', () => {
+    render(<AgentPanel />)
+
+    act(() => {
+      useAgentStore.setState({ isSending: true })
+      useAgentStore.getState().handleRpcEvent?.(JSON.stringify({
+        type: 'message_update',
+        assistantMessageEvent: {
+          type: 'text_delta',
+          delta: '我已经生成',
+        },
+      }))
+      useAgentStore.getState().handleRpcEvent?.(JSON.stringify({
+        type: 'message_update',
+        assistantMessageEvent: {
+          type: 'text_delta',
+          delta: '了思维导图建议。',
+        },
+      }))
+      useAgentStore.getState().handleRpcEvent?.(JSON.stringify({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: '我已经生成了思维导图建议。',
+            },
+          ],
+        },
+      }))
+    })
+
+    expect(screen.getAllByText('我已经生成了思维导图建议。')).toHaveLength(1)
+    expect(useAgentStore.getState().messages).toHaveLength(1)
+    expect(useAgentStore.getState().isSending).toBe(false)
   })
 
   it('converts legacy tree-shaped JSON responses into root insertion previews', () => {

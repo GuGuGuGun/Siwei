@@ -54,6 +54,7 @@ export const MindMapInlineEditor: React.FC<MindMapInlineEditorProps> = ({
   }, [draftValue, onChange, onCommit])
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    event.stopPropagation()
     if (isComposingRef.current) return
 
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
@@ -105,11 +106,15 @@ export const MindMapInlineEditor: React.FC<MindMapInlineEditorProps> = ({
     }
   }
 
+  const keepMouseEventInsideEditor = (event: React.MouseEvent<HTMLInputElement>) => {
+    event.stopPropagation()
+  }
+
   return (
     <input
       ref={inputRef}
       aria-label="编辑节点文本"
-      className="w-full min-w-0 rounded-md border border-amber-700/30 bg-white/80 px-2 py-1 text-center text-xs font-semibold leading-relaxed text-zinc-800 shadow-inner outline-none focus:border-amber-700"
+      className="nodrag nopan w-full min-w-0 rounded-md border border-amber-700/30 bg-white/80 px-2 py-1 text-center text-xs font-semibold leading-relaxed text-zinc-800 shadow-inner outline-none focus:border-amber-700"
       value={draftValue}
       placeholder="空白节点"
       onChange={(event) => {
@@ -132,6 +137,9 @@ export const MindMapInlineEditor: React.FC<MindMapInlineEditorProps> = ({
         onChange(committedValue)
         setLastCommittedValue(committedValue)
       }}
+      onPointerDown={keepMouseEventInsideEditor}
+      onMouseDown={keepMouseEventInsideEditor}
+      onClick={keepMouseEventInsideEditor}
       onKeyDown={handleKeyDown}
     />
   )

@@ -1,12 +1,10 @@
 use std::sync::{Mutex, OnceLock};
 
 use serde_json::{json, Value};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use crate::{
-    models::{
-        AgentDocumentContext, AgentSettings, AgentStatus,
-    },
+    models::{AgentDocumentContext, AgentSettings, AgentStatus, AgentStatusEvent},
     services::{
         agent::{runtime, runtime::AgentRuntimeRequest},
         agent_tool_host, settings_service,
@@ -20,6 +18,7 @@ static AGENT_STATE: OnceLock<Mutex<AgentRuntimeState>> = OnceLock::new();
 struct AgentRuntimeState {
     status: AgentStatus,
     last_abort_requested: bool,
+    next_event_id: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +50,7 @@ pub fn start_session(_app: tauri::AppHandle, session_key: String) -> AppResult<(
     state.status.running = true;
     state.status.streaming = false;
     state.status.error = None;
+    state.status.events.clear();
     state.last_abort_requested = false;
 
     Ok(())
@@ -127,6 +127,42 @@ pub fn finish_streaming() -> AppResult<()> {
         .lock()
         .map_err(|_| AppError::Validation("Agent 运行状态已损坏".to_string()))?;
     state.status.streaming = false;
+    Ok(())
+}
+
+pub fn finish_streaming_with_error(error: String) -> AppResult<()> {
+    let mut state = runtime_state()
+        .lock()
+        .map_err(|_| AppError::Validation("Agent 运行状态已损坏".to_string()))?;
+    state.status.streaming = false;
+    state.status.error = Some(error);
+    Ok(())
+}
+
+pub fn publish_event(app: &tauri::AppHandle, payload: Value) -> AppResult<()> {
+    let payload = {
+        let mut state = runtime_state()
+            .lock()
+            .map_err(|_| AppError::Validation("Agent 运行状态已损坏".to_string()))?;
+        state.next_event_id = state.next_event_id.saturating_add(1);
+        let event_id = state.next_event_id;
+        let mut payload = payload;
+        if let Some(object) = payload.as_object_mut() {
+            object.insert("eventId".to_string(), json!(event_id));
+        }
+        let payload_string = payload.to_string();
+        state.status.events.push(AgentStatusEvent {
+            id: event_id,
+            payload: payload_string.clone(),
+        });
+        if state.status.events.len() > 100 {
+            let overflow = state.status.events.len() - 100;
+            state.status.events.drain(0..overflow);
+        }
+        payload_string
+    };
+
+    let _ = app.emit("agent://event", payload);
     Ok(())
 }
 
@@ -238,7 +274,12 @@ fn runtime_state() -> &'static Mutex<AgentRuntimeState> {
     AGENT_STATE.get_or_init(|| Mutex::new(AgentRuntimeState::default()))
 }
 
-pub fn handle_tool_request(app: &tauri::AppHandle, id: String, method: String, params: Value) -> Value {
+pub fn handle_tool_request(
+    app: &tauri::AppHandle,
+    id: String,
+    method: String,
+    params: Value,
+) -> Value {
     agent_tool_host::handle_tool_request(app, id, method, params)
 }
 
@@ -345,5 +386,4 @@ mod tests {
             }
         );
     }
-
 }

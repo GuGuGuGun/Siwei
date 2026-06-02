@@ -53,6 +53,7 @@ export function createAgentRpcEventHandler({
 }: AgentEventHandlerDeps) {
   let streamedAgentText = ''
   let isStreamingStructuredPlan = false
+  let renderedAssistantText = ''
 
   const resetStructuredStream = () => {
     streamedAgentText = ''
@@ -120,7 +121,7 @@ export function createAgentRpcEventHandler({
         }
 
         setAgentState((state) => ({
-          messages: appendAssistantMessage(state.messages, `待确认插入 ${params.nodes.length} 个节点`),
+          messages: appendAssistantMessage(state.messages, plan.plan.summary),
           pendingPlan: plan.plan,
           error: null,
           isSending: false,
@@ -171,6 +172,7 @@ export function createAgentRpcEventHandler({
         const parsed = parseAgentResponseText(finalMessageText, getCurrentDoc())
         if (parsed.kind === 'plan') {
           resetStructuredStream()
+          renderedAssistantText = ''
           setAgentState({ pendingPlan: parsed.plan, error: null, isSending: false })
           return
         }
@@ -182,10 +184,11 @@ export function createAgentRpcEventHandler({
           setAgentState((state) => ({
             messages: shouldHideStructuredText
               ? state.messages
-              : appendAssistantMessage(state.messages, parsed.text),
+              : appendAssistantMessageOnce(state.messages, parsed.text, renderedAssistantText),
             error: parsed.warning ?? null,
             isSending: false,
           }))
+          renderedAssistantText = ''
           return
         }
       }
@@ -199,6 +202,7 @@ export function createAgentRpcEventHandler({
         return
       }
 
+      renderedAssistantText += delta
       setAgentState((state) => ({ messages: appendAssistantMessage(state.messages, delta) }))
     } catch (error) {
       setAgentState({ error: `Agent 事件解析失败: ${String(error)}` })
@@ -230,6 +234,23 @@ function appendAssistantMessage(
   }
 
   return [...messages, createAgentChatMessage('assistant', text)]
+}
+
+function appendAssistantMessageOnce(
+  messages: AgentChatMessage[],
+  text: string,
+  alreadyRenderedText: string,
+): AgentChatMessage[] {
+  if (!text || alreadyRenderedText === text) return messages
+  const lastAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
+  if (lastAssistantMessage?.text === text) return messages
+  if (lastAssistantMessage?.text && text.startsWith(lastAssistantMessage.text)) {
+    return appendAssistantMessage(messages, text.slice(lastAssistantMessage.text.length))
+  }
+  if (alreadyRenderedText && text.startsWith(alreadyRenderedText)) {
+    return appendAssistantMessage(messages, text.slice(alreadyRenderedText.length))
+  }
+  return appendAssistantMessage(messages, text)
 }
 
 function handleToolPlanResult<TParams>(

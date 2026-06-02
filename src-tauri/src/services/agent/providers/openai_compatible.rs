@@ -31,28 +31,15 @@ impl OpenAiStreamParser {
         };
 
         let mut events = Vec::new();
-        if let Some(content) = choice
-            .get("delta")
-            .and_then(|delta| delta.get("content"))
-            .and_then(Value::as_str)
-        {
+        if let Some(content) = extract_choice_text(choice) {
             if !content.is_empty() {
-                events.push(AgentStreamEvent::TextDelta {
-                    text: content.to_string(),
-                });
+                events.push(AgentStreamEvent::TextDelta { text: content });
             }
         }
 
-        if let Some(tool_calls) = choice
-            .get("delta")
-            .and_then(|delta| delta.get("tool_calls"))
-            .and_then(Value::as_array)
-        {
+        if let Some(tool_calls) = choice_tool_calls(choice) {
             for tool_call in tool_calls {
-                let index = tool_call
-                    .get("index")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0) as usize;
+                let index = tool_call.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
                 let id = tool_call
                     .get("id")
                     .and_then(Value::as_str)
@@ -79,8 +66,7 @@ impl OpenAiStreamParser {
                 let arguments_delta = tool_call
                     .get("function")
                     .and_then(|function| function.get("arguments"))
-                    .and_then(Value::as_str)
-                    .map(ToString::to_string);
+                    .and_then(argument_delta_to_string);
                 if let Some(delta) = arguments_delta.as_deref() {
                     entry.append_arguments(delta);
                 }
@@ -122,6 +108,62 @@ impl OpenAiStreamParser {
     }
 }
 
+fn extract_choice_text(choice: &Value) -> Option<String> {
+    choice
+        .get("delta")
+        .and_then(|delta| delta.get("content"))
+        .and_then(content_to_string)
+        .or_else(|| {
+            choice
+                .get("message")
+                .and_then(|message| message.get("content"))
+                .and_then(content_to_string)
+        })
+        .or_else(|| choice.get("text").and_then(content_to_string))
+}
+
+fn content_to_string(content: &Value) -> Option<String> {
+    if let Some(text) = content.as_str() {
+        return Some(text.to_string());
+    }
+
+    content.as_array().map(|parts| {
+        parts
+            .iter()
+            .filter_map(|part| {
+                part.get("text")
+                    .and_then(Value::as_str)
+                    .or_else(|| part.get("content").and_then(Value::as_str))
+            })
+            .collect::<String>()
+    })
+}
+
+fn choice_tool_calls(choice: &Value) -> Option<&Vec<Value>> {
+    choice
+        .get("delta")
+        .and_then(|delta| delta.get("tool_calls"))
+        .and_then(Value::as_array)
+        .or_else(|| {
+            choice
+                .get("message")
+                .and_then(|message| message.get("tool_calls"))
+                .and_then(Value::as_array)
+        })
+}
+
+fn argument_delta_to_string(value: &Value) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        return Some(text.to_string());
+    }
+
+    if value.is_object() || value.is_array() {
+        return Some(value.to_string());
+    }
+
+    None
+}
+
 pub fn to_openai_tools(tools: &[AgentToolDefinition]) -> Vec<Value> {
     tools
         .iter()
@@ -144,9 +186,8 @@ mod tests {
 
     use crate::services::agent::protocol::{AgentStopReason, AgentStreamEvent};
     use crate::services::agent::tools::{
-        openai_tool_name, siwei_tool_definitions, TOOL_LIBRARY_SEARCH,
-        TOOL_MINDMAP_DELETE_NODES, TOOL_MINDMAP_MOVE_NODES, TOOL_MINDMAP_READ_SUBTREE,
-        TOOL_MINDMAP_UPDATE_NODES,
+        openai_tool_name, siwei_tool_definitions, TOOL_LIBRARY_SEARCH, TOOL_MINDMAP_DELETE_NODES,
+        TOOL_MINDMAP_MOVE_NODES, TOOL_MINDMAP_READ_SUBTREE, TOOL_MINDMAP_UPDATE_NODES,
     };
 
     use super::{to_openai_tools, OpenAiStreamParser};
@@ -163,6 +204,61 @@ mod tests {
             vec![AgentStreamEvent::TextDelta {
                 text: "你好".to_string()
             }]
+        );
+    }
+
+    #[test]
+    fn parses_full_message_content_from_openai_compatible_streams() {
+        let mut parser = OpenAiStreamParser::default();
+        let events = parser
+            .push_sse_data(
+                r#"{"choices":[{"message":{"role":"assistant","content":"完整返回"},"finish_reason":"stop"}]}"#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            events,
+            vec![
+                AgentStreamEvent::TextDelta {
+                    text: "完整返回".to_string()
+                },
+                AgentStreamEvent::MessageDone {
+                    stop_reason: AgentStopReason::EndTurn
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_full_message_tool_calls_from_openai_compatible_streams() {
+        let mut parser = OpenAiStreamParser::default();
+        let events = parser
+            .push_sse_data(
+                r#"{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_1","function":{"name":"mindmap_insert_nodes","arguments":{"documentId":"doc","snapshotKey":"snap","parentNodeId":"root","nodes":[{"text":"节点"}]}}}]},"finish_reason":"tool_calls"}]}"#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            events[1],
+            AgentStreamEvent::ToolCallDone {
+                call: crate::services::agent::protocol::AgentToolCall {
+                    id: "call_1".to_string(),
+                    name: "mindmap_insert_nodes".to_string(),
+                    arguments: json!({
+                        "documentId": "doc",
+                        "snapshotKey": "snap",
+                        "parentNodeId": "root",
+                        "nodes": [{ "text": "节点" }]
+                    }),
+                    extra_content: None,
+                }
+            }
+        );
+        assert_eq!(
+            events[2],
+            AgentStreamEvent::MessageDone {
+                stop_reason: AgentStopReason::ToolUse
+            }
         );
     }
 
@@ -276,11 +372,15 @@ mod tests {
 
         assert_eq!(library_search["type"], "function");
         assert_eq!(library_search["function"]["name"], "library_search");
-        assert_eq!(library_search["function"]["parameters"]["required"], json!(["query"]));
+        assert_eq!(
+            library_search["function"]["parameters"]["required"],
+            json!(["query"])
+        );
         assert!(tools.iter().all(|tool| {
-            tool["function"]["name"]
-                .as_str()
-                .is_some_and(|name| name.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'))
+            tool["function"]["name"].as_str().is_some_and(|name| {
+                name.chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+            })
         }));
         assert!(tools.iter().any(|tool| {
             tool["function"]["name"] == "mindmap_insert_nodes"

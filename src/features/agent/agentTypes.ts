@@ -39,6 +39,12 @@ export interface AgentStatus {
   sessionKey: string | null
   model: string | null
   error: string | null
+  events: AgentStatusEvent[]
+}
+
+export interface AgentStatusEvent {
+  id: number
+  payload: string
 }
 
 export type AgentOperation =
@@ -155,6 +161,7 @@ export interface AgentChatMessage {
 
 export interface AgentRpcEventRecord {
   type: string
+  eventId?: number
   toolName?: string
   params?: unknown
   assistantMessageEvent?: {

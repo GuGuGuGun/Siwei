@@ -11,6 +11,7 @@ import {
   createAgentChatMessage,
   createAgentRpcEventHandler,
 } from './agentEventHandler'
+import { describeAppliedPlan } from './agentToolPlanFactory'
 import { useDocumentStore } from '../document/documentStore'
 import * as api from '../../services/siweiApi'
 
@@ -33,6 +34,8 @@ interface AgentState {
 }
 
 let eventsAttached = false
+let statusPollTimer: number | null = null
+const handledEventIds = new Set<number>()
 
 export const useAgentStore = create<AgentState>((set, get) => ({
   isOpen: false,
@@ -69,11 +72,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       await api.agentStartSession(sessionKey)
       await api.agentSendMessage(trimmed, context)
       const status = await api.agentGetStatus()
+      processStatusEvents(status)
       set({
         status,
         isSending: status.streaming,
         error: status.error,
       })
+      startStatusPolling()
     } catch (error) {
       set({
         isSending: false,
@@ -86,6 +91,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   abort: async () => {
     await api.agentAbort()
     await get().loadStatus()
+    stopStatusPolling()
   },
 
   setPendingPlan: (pendingPlan) => set({ pendingPlan, error: null }),
@@ -98,7 +104,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     const result = useDocumentStore.getState().applyAgentChangePlan(plan)
     if (result.ok) {
-      set({ pendingPlan: null, error: null })
+      set((state) => ({
+        messages: [...state.messages, createAgentChatMessage('assistant', describeAppliedPlan(plan))],
+        pendingPlan: null,
+        error: null,
+      }))
       return { ok: true }
     }
 
@@ -111,7 +121,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     eventsAttached = true
 
     await listen<string>('agent://event', (event) => {
-      useAgentStore.getState().handleRpcEvent?.(event.payload)
+      handleEventPayload(event.payload)
     })
     await listen<string>('agent://error', (event) => {
       set({ error: event.payload, isSending: false })
@@ -130,3 +140,63 @@ const setInternalHandler = () => {
 }
 
 setInternalHandler()
+
+function handleEventPayload(payload: string): void {
+  markEventHandled(payload)
+  useAgentStore.getState().handleRpcEvent?.(payload)
+}
+
+function markEventHandled(payload: string): void {
+  try {
+    const record = JSON.parse(payload) as { eventId?: unknown }
+    if (typeof record.eventId === 'number') {
+      handledEventIds.add(record.eventId)
+    }
+  } catch {
+    // 非 JSON payload 会交给原事件处理器报错，这里只负责事件去重。
+  }
+}
+
+function processStatusEvents(status: AgentStatus): void {
+  status.events.forEach((event) => {
+    if (handledEventIds.has(event.id)) return
+    handledEventIds.add(event.id)
+    useAgentStore.getState().handleRpcEvent?.(event.payload)
+  })
+}
+
+function startStatusPolling(): void {
+  if (statusPollTimer !== null) return
+
+  statusPollTimer = window.setInterval(() => {
+    void pollAgentStatus()
+  }, 700)
+}
+
+function stopStatusPolling(): void {
+  if (statusPollTimer === null) return
+
+  window.clearInterval(statusPollTimer)
+  statusPollTimer = null
+}
+
+async function pollAgentStatus(): Promise<void> {
+  try {
+    const status = await api.agentGetStatus()
+    processStatusEvents(status)
+    useAgentStore.setState({
+      status,
+      isSending: status.streaming,
+      error: status.error,
+    })
+    if (!status.streaming) {
+      stopStatusPolling()
+    }
+  } catch (error) {
+    stopStatusPolling()
+    useAgentStore.setState({
+      isSending: false,
+      error: String(error),
+    })
+  }
+}

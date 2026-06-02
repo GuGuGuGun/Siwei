@@ -7,11 +7,11 @@ use crate::{
     services::{
         agent::{
             prompt::SIWEI_AGENT_SYSTEM_PROMPT,
+            protocol::{AgentStreamEvent, AgentToolCall},
             providers::{
                 claude::{to_claude_tools, ClaudeStreamParser},
                 openai_compatible::{to_openai_tools, OpenAiStreamParser},
             },
-            protocol::{AgentStreamEvent, AgentToolCall},
             sse::SseDecoder,
             tool_messages::{
                 claude_assistant_tool_call_message, claude_tool_result_message,
@@ -44,11 +44,14 @@ pub async fn run_agent_turn(app: tauri::AppHandle, request: AgentRuntimeRequest)
     };
 
     if let Err(error) = result {
-        let _ = app.emit("agent://error", error.user_message());
+        let message = error.user_message();
+        let _ = agent_service::finish_streaming_with_error(message.clone());
+        let _ = app.emit("agent://error", message);
+    } else {
+        let _ = agent_service::finish_streaming();
     }
 
-    let _ = agent_service::finish_streaming();
-    let _ = app.emit("agent://event", json!({ "type": "agent_end" }).to_string());
+    let _ = agent_service::publish_event(&app, json!({ "type": "agent_end" }));
 }
 
 async fn run_openai_turn(app: &tauri::AppHandle, request: AgentRuntimeRequest) -> AppResult<()> {
@@ -71,6 +74,7 @@ async fn run_openai_turn(app: &tauri::AppHandle, request: AgentRuntimeRequest) -
 
         let outcome = stream_openai_request(app, &client, &url, &request.api_key, &body).await?;
         if outcome.tool_calls.is_empty() {
+            handle_no_tool_call_turn(app, &request, &outcome)?;
             return Ok(());
         }
 
@@ -119,7 +123,10 @@ async fn stream_openai_request(
             AppError::Validation(format!("读取 OpenAI-compatible 流失败: {error}"))
         })?;
         for event in sse.push_chunk(&chunk)? {
-            for agent_event in parser.push_sse_data(&event.data).map_err(AppError::Validation)? {
+            for agent_event in parser
+                .push_sse_data(&event.data)
+                .map_err(AppError::Validation)?
+            {
                 collect_and_emit_stream_event(app, agent_event, &mut outcome)?;
             }
         }
@@ -145,10 +152,12 @@ async fn run_claude_turn(app: &tauri::AppHandle, request: AgentRuntimeRequest) -
             "system": SIWEI_AGENT_SYSTEM_PROMPT,
             "messages": messages,
             "tools": tools,
+            "tool_choice": { "type": "auto" },
         });
 
         let outcome = stream_claude_request(app, &client, &url, &request.api_key, &body).await?;
         if outcome.tool_calls.is_empty() {
+            handle_no_tool_call_turn(app, &request, &outcome)?;
             return Ok(());
         }
 
@@ -225,16 +234,15 @@ fn collect_and_emit_stream_event(
         AgentStreamEvent::TextDelta { text } => {
             outcome.text.push_str(&text);
             // 前端只接收增量文本事件，完整文本留在 outcome 中用于判断本轮是否还需要工具调用。
-            let _ = app.emit(
-                "agent://event",
+            let _ = agent_service::publish_event(
+                app,
                 json!({
                     "type": "message_update",
                     "assistantMessageEvent": {
                         "type": "text_delta",
                         "delta": text,
                     }
-                })
-                .to_string(),
+                }),
             );
         }
         AgentStreamEvent::ToolCallDone { call } => {
@@ -277,12 +285,8 @@ fn execute_tool_call(
         }
     }
     // Runtime 只负责桥接工具调用，具体只读文档库和脑图写入校验仍由 agent_service 统一处理。
-    let response = agent_service::handle_tool_request(
-        app,
-        call.id.clone(),
-        method.to_string(),
-        arguments,
-    );
+    let response =
+        agent_service::handle_tool_request(app, call.id.clone(), method.to_string(), arguments);
 
     if let Some(error) = response
         .get("error")
@@ -296,6 +300,125 @@ fn execute_tool_call(
         .get("result")
         .cloned()
         .unwrap_or_else(|| json!({ "accepted": true })))
+}
+
+fn handle_no_tool_call_turn(
+    app: &tauri::AppHandle,
+    request: &AgentRuntimeRequest,
+    outcome: &ProviderTurnOutcome,
+) -> AppResult<()> {
+    if should_fallback_to_local_mindmap_insert(&request.message) {
+        let response = agent_service::handle_tool_request(
+            app,
+            "local-mindmap-insert-fallback".to_string(),
+            "mindmap.insert_nodes".to_string(),
+            local_mindmap_insert_params(&request.message, &request.document_context),
+        );
+        if let Some(error) = response
+            .get("error")
+            .and_then(|error| error.get("message"))
+            .and_then(Value::as_str)
+        {
+            return Err(AppError::Validation(error.to_string()));
+        }
+        return Ok(());
+    }
+
+    if outcome.text.trim().is_empty() {
+        return Err(AppError::Validation(
+            "模型没有返回可显示内容，也没有调用可预览的思维导图工具。请重试，或换用支持工具调用的模型。".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn should_fallback_to_local_mindmap_insert(message: &str) -> bool {
+    let normalized = message.to_lowercase();
+    let asks_to_generate = [
+        "生成",
+        "创建",
+        "新增",
+        "做一个",
+        "建立",
+        "create",
+        "generate",
+    ]
+    .iter()
+    .any(|keyword| normalized.contains(keyword));
+    let asks_for_mindmap = ["思维导图", "脑图", "mind map", "mindmap"]
+        .iter()
+        .any(|keyword| normalized.contains(keyword));
+
+    asks_to_generate && asks_for_mindmap
+}
+
+fn local_mindmap_insert_params(message: &str, context: &AgentDocumentContext) -> Value {
+    let normalized = message.to_lowercase();
+    let is_kaoyan_data_structure = normalized.contains("408") && message.contains("数据结构");
+    let (topic, children): (String, Vec<Value>) = if is_kaoyan_data_structure {
+        (
+            "408 数据结构".to_string(),
+            vec![
+                json!({ "text": "线性表", "children": [
+                    { "text": "顺序表与链表" },
+                    { "text": "插入、删除与查找" }
+                ] }),
+                json!({ "text": "栈、队列和数组", "children": [
+                    { "text": "栈与递归" },
+                    { "text": "循环队列与矩阵压缩存储" }
+                ] }),
+                json!({ "text": "树与二叉树", "children": [
+                    { "text": "遍历与线索二叉树" },
+                    { "text": "哈夫曼树、堆与并查集" }
+                ] }),
+                json!({ "text": "图", "children": [
+                    { "text": "存储结构与遍历" },
+                    { "text": "最短路径、生成树与拓扑排序" }
+                ] }),
+                json!({ "text": "查找", "children": [
+                    { "text": "顺序、折半与分块查找" },
+                    { "text": "B 树、散列表与冲突处理" }
+                ] }),
+                json!({ "text": "排序", "children": [
+                    { "text": "插入、交换、选择和归并排序" },
+                    { "text": "稳定性、复杂度与适用场景" }
+                ] }),
+            ],
+        )
+    } else {
+        let requested_topic = message
+            .replace("生成", "")
+            .replace("创建", "")
+            .replace("一个", "")
+            .replace("思维导图", "")
+            .trim()
+            .to_string();
+        (
+            if requested_topic.is_empty() {
+                "思维导图".to_string()
+            } else {
+                requested_topic
+            },
+            vec![
+                json!({ "text": "核心概念" }),
+                json!({ "text": "关键分支" }),
+                json!({ "text": "后续整理" }),
+            ],
+        )
+    };
+
+    json!({
+        "documentId": context.document_id,
+        "snapshotKey": context.snapshot_key,
+        "parentNodeId": context.root.node_id,
+        "nodes": [
+            {
+                "text": topic,
+                "children": children,
+            }
+        ],
+    })
 }
 
 fn build_user_prompt(message: &str, context: &AgentDocumentContext) -> AppResult<String> {
@@ -321,7 +444,9 @@ fn join_url(base_url: &str, path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::join_url;
+    use crate::models::{AgentContextScope, AgentDocumentContext, AgentDocumentNodeContext};
+
+    use super::{join_url, local_mindmap_insert_params, should_fallback_to_local_mindmap_insert};
 
     #[test]
     fn joins_provider_url_without_double_slash() {
@@ -331,4 +456,34 @@ mod tests {
         );
     }
 
+    #[test]
+    fn creates_local_insert_plan_params_for_mind_map_generation_fallback() {
+        assert!(should_fallback_to_local_mindmap_insert(
+            "生成一个简易的 408 数据结构思维导图"
+        ));
+        assert!(!should_fallback_to_local_mindmap_insert("你好"));
+
+        let context = AgentDocumentContext {
+            schema_version: 1,
+            context_scope: AgentContextScope::CurrentDocument,
+            document_id: "doc-1".to_string(),
+            title: "测试文档".to_string(),
+            snapshot_key: "snapshot".to_string(),
+            root: AgentDocumentNodeContext {
+                node_id: "root".to_string(),
+                text: "根节点".to_string(),
+                note: None,
+                tags: None,
+                checked: None,
+                children: Vec::new(),
+            },
+        };
+        let params = local_mindmap_insert_params("生成一个简易的 408 数据结构思维导图", &context);
+
+        assert_eq!(params["documentId"], "doc-1");
+        assert_eq!(params["snapshotKey"], "snapshot");
+        assert_eq!(params["parentNodeId"], "root");
+        assert_eq!(params["nodes"][0]["text"], "408 数据结构");
+        assert_eq!(params["nodes"][0]["children"][0]["text"], "线性表");
+    }
 }

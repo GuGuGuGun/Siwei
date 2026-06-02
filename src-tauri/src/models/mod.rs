@@ -7,7 +7,7 @@ pub mod settings;
 
 pub use agent::{
     AgentContextScope, AgentDocumentContext, AgentDocumentNodeContext, AgentLibraryDocumentRef,
-    AgentLibrarySearchRef, AgentLibrarySearchToolQuery, AgentStatus,
+    AgentLibrarySearchRef, AgentLibrarySearchToolQuery, AgentStatus, AgentStatusEvent,
 };
 pub use document::{MindMapLayoutState, OutlineDocument, OutlineNode};
 pub use library::{

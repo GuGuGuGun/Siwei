@@ -14,6 +14,23 @@ import type {
 
 type PlanResult = { ok: true; plan: AgentChangePlan } | { ok: false; error: string }
 
+export function describeInsertedNodeBatch(nodes: AgentInsertedNode[]): string {
+  const topicCount = nodes.length
+  const descendantCount = nodes.reduce((total, node) => total + countInsertedDescendants(node), 0)
+  if (descendantCount === 0) return `${topicCount} 个节点`
+
+  return `${topicCount} 个主题，包含 ${descendantCount} 个子节点`
+}
+
+export function describeAppliedPlan(plan: AgentChangePlan): string {
+  const insertOperations = plan.operations.filter((operation) => operation.type === 'insertNode')
+  if (insertOperations.length === plan.operations.length) {
+    return `已插入 ${describeInsertedNodeBatch(insertOperations.map((operation) => operation.node))}`
+  }
+
+  return `已应用 ${plan.operations.length} 项修改`
+}
+
 export function createMindMapInsertPlan(
   currentDoc: OutlineDocument | null,
   params: AgentMindMapInsertNodesParams,
@@ -47,7 +64,7 @@ export function createMindMapInsertPlan(
       contextScope: 'currentDocument',
       documentId: params.documentId,
       snapshotKey: params.snapshotKey,
-      summary: `待确认插入 ${insertedNodes.length} 个节点`,
+      summary: `待确认插入 ${describeInsertedNodeBatch(insertedNodes)}`,
       rationale: '助理已生成思维导图节点，确认后才会写入当前文档。',
       riskLevel: 'low',
       references: [],
@@ -215,6 +232,13 @@ function createCurrentDocumentReferences(
     })
   }
   return references
+}
+
+function countInsertedDescendants(node: AgentInsertedNode): number {
+  return (node.children ?? []).reduce(
+    (total, child) => total + 1 + countInsertedDescendants(child),
+    0,
+  )
 }
 
 function findNodeTextPath(root: OutlineNode, nodeId: string, path: string[] = []): string[] | null {

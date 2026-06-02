@@ -1,13 +1,18 @@
 use serde_json::{json, Value};
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 use crate::{
     models::{AgentDocumentContext, AgentDocumentNodeContext, AgentLibrarySearchToolQuery},
-    services::agent_tool_executor,
+    services::{agent_service, agent_tool_executor},
     utils::error::{AppError, AppResult},
 };
 
-pub fn handle_tool_request(app: &tauri::AppHandle, id: String, method: String, params: Value) -> Value {
+pub fn handle_tool_request(
+    app: &tauri::AppHandle,
+    id: String,
+    method: String,
+    params: Value,
+) -> Value {
     let result = match method.as_str() {
         "mindmap.insertNodes" | "mindmap.insert_nodes" => {
             // 写操作只发给前端生成待确认计划，真正修改文档仍由前端按 snapshotKey 校验后执行。
@@ -100,14 +105,13 @@ pub fn handle_tool_request(app: &tauri::AppHandle, id: String, method: String, p
 }
 
 fn emit_mindmap_tool_result(app: &tauri::AppHandle, tool_name: &str, params: Value) {
-    let _ = app.emit(
-        "agent://event",
+    let _ = agent_service::publish_event(
+        app,
         json!({
             "type": "tool_result",
             "toolName": tool_name,
             "params": params,
-        })
-        .to_string(),
+        }),
     );
 }
 
@@ -117,9 +121,8 @@ fn read_subtree_from_params(params: Value) -> AppResult<Value> {
         .cloned()
         .ok_or_else(|| AppError::Validation("读取子树缺少当前文档上下文".to_string()))
         .and_then(|value| {
-            serde_json::from_value::<AgentDocumentContext>(value).map_err(|error| {
-                AppError::JsonParse(format!("解析当前文档上下文失败: {error}"))
-            })
+            serde_json::from_value::<AgentDocumentContext>(value)
+                .map_err(|error| AppError::JsonParse(format!("解析当前文档上下文失败: {error}")))
         })?;
     let document_id = params
         .get("documentId")

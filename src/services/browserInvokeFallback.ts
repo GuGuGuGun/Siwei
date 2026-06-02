@@ -36,6 +36,7 @@ let agentStatus: AgentStatus = {
   sessionKey: null,
   model: null,
   error: '浏览器预览模式不支持 Pi 文档助理',
+  events: [],
 }
 
 export async function browserInvokeFallback<T>(command: string, args?: CommandArgs): Promise<T> {

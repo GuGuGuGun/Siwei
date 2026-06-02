@@ -6,6 +6,8 @@ import { toast } from '../../components/common/Toast'
 import { useDocumentStore } from '../document/documentStore'
 import { useAgentStore } from './agentStore'
 import { createAgentDocumentPreviewForDocument } from './agentChangePlan'
+import { AgentMarkdownText } from './AgentMarkdownText'
+import { describeAppliedPlan } from './agentToolPlanFactory'
 import type { AgentDeleteNodePreview, AgentOperation } from './agentTypes'
 
 export const AgentPanel: React.FC = () => {
@@ -54,9 +56,10 @@ export const AgentPanel: React.FC = () => {
       return
     }
 
+    const appliedPlan = pendingPlan
     const result = applyPendingPlan()
     if (result.ok) {
-      toast.success(isInsertOnlyPlan ? '已确认插入' : '助理修改已应用')
+      toast.success(appliedPlan ? describeAppliedPlan(appliedPlan) : '助理修改已应用')
       setConfirmingDeletes(null)
     } else {
       toast.error(result.error)
@@ -102,7 +105,7 @@ export const AgentPanel: React.FC = () => {
                   : 'border border-zinc-200 bg-white text-zinc-600'
               }`}
             >
-              {item.text}
+              <AgentMarkdownText text={item.text} />
             </div>
           ))}
           {messages.length === 0 && (

@@ -54,7 +54,7 @@ describe('agentToolPlans', () => {
     if (!result.ok) return
     expect(result.plan).toMatchObject({
       riskLevel: 'low',
-      summary: '待确认插入 1 个节点',
+      summary: '待确认插入 1 个主题，包含 1 个子节点',
       operations: [
         {
           type: 'insertNode',

@@ -40,6 +40,14 @@ pub struct AgentStatus {
     pub session_key: Option<String>,
     pub model: Option<String>,
     pub error: Option<String>,
+    pub events: Vec<AgentStatusEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentStatusEvent {
+    pub id: u64,
+    pub payload: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +89,7 @@ impl Default for AgentStatus {
             session_key: None,
             model: None,
             error: None,
+            events: Vec::new(),
         }
     }
 }
