@@ -177,6 +177,10 @@ Siwei Agent Runtime 运行在 Tauri/Rust 进程内，不依赖 Node sidecar 或 
 
 当前仓库仍在活跃演进中。如果你计划基于 Siwei 做较大的二次开发或长期维护，建议先查看现有数据格式、Tauri command 契约和 Agent 写入边界。
 
+## 友链
+
+- [Linux.do](https://linux.do/)：学AI，上L站
+
 ## License
 
 当前仓库尚未声明开源许可证。使用、分发或二次开发前请先与作者确认授权范围。
