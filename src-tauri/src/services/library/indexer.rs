@@ -4,14 +4,18 @@ use rusqlite::Connection;
 
 use crate::{
     models::{LibraryDocumentItem, LibraryDocumentStatus, LibraryRefreshFailureReason},
-    services::{file_service, library::{codec::*, document_mapper, repository, tree::{collect_tags, extract_nodes}}},
+    services::{
+        file_service,
+        library::{
+            codec::*,
+            document_mapper, repository,
+            tree::{collect_tags, extract_nodes},
+        },
+    },
     utils::error::{AppError, AppResult},
 };
 
-pub(crate) fn index_document(
-    conn: &mut Connection,
-    path: &Path,
-) -> AppResult<LibraryDocumentItem> {
+pub(crate) fn index_document(conn: &mut Connection, path: &Path) -> AppResult<LibraryDocumentItem> {
     let refresh_started_at = now_millis();
     let doc = file_service::load_document(path)?;
     let path_string = path.to_string_lossy().to_string();

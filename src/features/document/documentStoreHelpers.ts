@@ -46,6 +46,19 @@ export function createOutlineNode(text: string): OutlineNode {
   }
 }
 
+export function cloneOutlineNodesWithFreshIds(
+  nodes: OutlineNode[],
+  now: number = Date.now(),
+): OutlineNode[] {
+  return nodes.map((node) => ({
+    ...node,
+    id: generateId(),
+    createdAt: now,
+    updatedAt: now,
+    children: cloneOutlineNodesWithFreshIds(node.children, now),
+  }))
+}
+
 export function getNodeAtPath(root: OutlineNode, path: number[]): OutlineNode {
   let node = root
   for (const index of path) {

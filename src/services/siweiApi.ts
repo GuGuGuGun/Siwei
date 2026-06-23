@@ -1,6 +1,13 @@
 import { invoke } from '@tauri-apps/api/core'
 
-import type { OutlineDocument, RecentDocItem, SearchResult } from '../types/document'
+import type {
+  ExportFormat,
+  ImportFormat,
+  ImportPreview,
+  OutlineDocument,
+  RecentDocItem,
+  SearchResult,
+} from '../types/document'
 import type { AppSettings } from '../types/settings'
 import type { AgentDocumentContext, AgentStatus } from '../features/agent/agentTypes'
 import type {
@@ -45,12 +52,47 @@ export function importMarkdown(path: string): Promise<OutlineDocument> {
   return callCommand('import_markdown', { path })
 }
 
+export function previewImportDocument(
+  path: string,
+  format: ImportFormat,
+): Promise<ImportPreview> {
+  return callCommand('preview_import_document', { path, format })
+}
+
 export function exportJson(path: string, doc: OutlineDocument): Promise<void> {
   return callCommand('export_json', { path, doc })
 }
 
 export function importJson(path: string): Promise<OutlineDocument> {
   return callCommand('import_json', { path })
+}
+
+export function exportOpml(path: string, doc: OutlineDocument): Promise<void> {
+  return callCommand('export_opml', { path, doc })
+}
+
+export function exportHtml(path: string, doc: OutlineDocument): Promise<void> {
+  return callCommand('export_html', { path, doc })
+}
+
+export function exportPlainText(path: string, doc: OutlineDocument): Promise<void> {
+  return callCommand('export_plain_text', { path, doc })
+}
+
+export function extensionForExportFormat(format: ExportFormat): string {
+  switch (format) {
+    case 'markdown':
+      return 'md'
+    case 'opml':
+      return 'opml'
+    case 'html':
+      return 'html'
+    case 'text':
+      return 'txt'
+    case 'json':
+    default:
+      return 'siwei.json'
+  }
 }
 
 export function exportMindMapAsset(

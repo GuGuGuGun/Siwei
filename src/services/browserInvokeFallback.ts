@@ -1,4 +1,4 @@
-import type { OutlineDocument, RecentDocItem, SearchResult } from '../types/document'
+import type { ImportPreview, OutlineDocument, RecentDocItem, SearchResult } from '../types/document'
 import type { AgentStatus } from '../features/agent/agentTypes'
 import type { AppSettings } from '../types/settings'
 import { DEFAULT_SETTINGS } from '../types/settings'
@@ -47,6 +47,9 @@ export async function browserInvokeFallback<T>(command: string, args?: CommandAr
     case 'save_document':
     case 'export_markdown':
     case 'export_json':
+    case 'export_opml':
+    case 'export_html':
+    case 'export_plain_text':
       if (args?.doc) {
         currentDoc = args.doc as OutlineDocument
       }
@@ -57,6 +60,8 @@ export async function browserInvokeFallback<T>(command: string, args?: CommandAr
     case 'import_json':
     case 'import_markdown':
       return currentDoc as T
+    case 'preview_import_document':
+      return createPreview(currentDoc) as T
     case 'get_recent_docs':
       return recentDocs as T
     case 'add_recent_doc':
@@ -269,6 +274,33 @@ export async function browserInvokeFallback<T>(command: string, args?: CommandAr
     default:
       throw new Error(`Unsupported browser fallback command: ${command}`)
   }
+}
+
+function createPreview(doc: OutlineDocument): ImportPreview {
+  const tags = collectTags(doc.root)
+  const tasks = collectTasks(doc.root)
+  return {
+    document: doc,
+    summary: {
+      title: doc.title,
+      nodeCount: Math.max(countNodes(doc.root) - 1, 0),
+      maxDepth: maxDepth(doc.root.children, 1),
+      taskCount: tasks.length,
+      tagCount: tags.length,
+      noteCount: countNotes(doc.root),
+      warningCount: 0,
+    },
+    report: { items: [] },
+  }
+}
+
+function maxDepth(nodes: OutlineDocument['root']['children'], depth: number): number {
+  return nodes.reduce((currentMax, node) => Math.max(currentMax, depth, maxDepth(node.children, depth + 1)), 0)
+}
+
+function countNotes(node: OutlineDocument['root']): number {
+  const own = node.note?.trim() ? 1 : 0
+  return own + node.children.reduce((total, child) => total + countNotes(child), 0)
 }
 
 function searchLibrary(query: string): LibrarySearchResult[] {

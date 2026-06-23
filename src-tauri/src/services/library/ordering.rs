@@ -1,6 +1,4 @@
-use crate::models::{
-    LibraryDocumentItem, LibraryPage, LibrarySortBy,
-};
+use crate::models::{LibraryDocumentItem, LibraryPage, LibrarySortBy};
 use crate::utils::error::AppResult;
 
 use super::codec::status_to_db;

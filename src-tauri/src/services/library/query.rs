@@ -21,7 +21,11 @@ pub(crate) fn query_library_docs(
 ) -> AppResult<LibraryPage<LibraryDocumentItem>> {
     let mut items = repository::list_documents(conn)?;
 
-    if let Some(status) = query.status.as_deref().and_then(parse_document_status_filter) {
+    if let Some(status) = query
+        .status
+        .as_deref()
+        .and_then(parse_document_status_filter)
+    {
         items.retain(|item| item.status == status);
     } else if matches!(query.status.as_deref(), Some("failed")) {
         items.retain(|item| {

@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod document;
+pub mod import_export;
 pub mod library;
 pub mod recent;
 pub mod search;
@@ -10,6 +11,9 @@ pub use agent::{
     AgentLibrarySearchRef, AgentLibrarySearchToolQuery, AgentStatus, AgentStatusEvent,
 };
 pub use document::{MindMapLayoutState, OutlineDocument, OutlineNode};
+pub use import_export::{
+    ImportPreview, ImportReport, ImportReportItem, ImportReportSeverity, ImportSummary,
+};
 pub use library::{
     LibraryDocumentItem, LibraryDocumentQuery, LibraryDocumentStatus, LibraryHighlightRange,
     LibraryLocation, LibraryLocationSource, LibraryMatchedField, LibraryNodeIndexItem, LibraryPage,

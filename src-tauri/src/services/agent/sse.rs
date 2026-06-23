@@ -60,10 +60,17 @@ mod tests {
     fn decodes_sse_events_across_chunks() {
         let mut decoder = SseDecoder::default();
 
-        assert!(decoder.push_chunk(b"event: message_delta\ndata: {\"a\"").unwrap().is_empty());
-        let events = decoder.push_chunk(br#":1}
+        assert!(decoder
+            .push_chunk(b"event: message_delta\ndata: {\"a\"")
+            .unwrap()
+            .is_empty());
+        let events = decoder
+            .push_chunk(
+                br#":1}
 
-"#).unwrap();
+"#,
+            )
+            .unwrap();
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_name, "message_delta");

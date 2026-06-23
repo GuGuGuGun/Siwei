@@ -2,12 +2,14 @@ import type { OutlineDocument, OutlineNode } from '../../../types/document'
 import * as api from '../../../services/siweiApi'
 import { normalizeMindMapLayoutState } from '../../mindmap/mindMapLayoutState'
 import {
+  cloneOutlineNodesWithFreshIds,
   collectCollapsedIds,
   createSnapshot,
   getDocumentWithVersionForSave,
 } from '../documentStoreHelpers'
 import type { DocumentStoreContext } from '../documentStoreContext'
 import type { DocumentState } from '../documentStoreTypes'
+import { findPath, updateNodeAtPath } from '../../../utils/tree'
 
 type PersistenceActions = Pick<
   DocumentState,
@@ -17,10 +19,11 @@ type PersistenceActions = Pick<
   | 'saveDoc'
   | 'exportDoc'
   | 'importDoc'
+  | 'applyImportPreview'
 >
 
 export function createPersistenceSlice(context: DocumentStoreContext): PersistenceActions {
-  const { get, set, clearHistoryState } = context
+  const { get, set, clearHistoryState, beginMutation, setHistoryAfterMutation } = context
 
   return {
     canDiscardCurrentDoc: () => {
@@ -183,10 +186,22 @@ export function createPersistenceSlice(context: DocumentStoreContext): Persisten
         root: syncCollapsed(currentDoc.root),
       }
 
-      if (format === 'markdown') {
-        await api.exportMarkdown(path, docToExport)
-      } else {
-        await api.exportJson(path, docToExport)
+      switch (format) {
+        case 'markdown':
+          await api.exportMarkdown(path, docToExport)
+          break
+        case 'opml':
+          await api.exportOpml(path, docToExport)
+          break
+        case 'html':
+          await api.exportHtml(path, docToExport)
+          break
+        case 'text':
+          await api.exportPlainText(path, docToExport)
+          break
+        case 'json':
+        default:
+          await api.exportJson(path, docToExport)
       }
     },
 
@@ -221,6 +236,68 @@ export function createPersistenceSlice(context: DocumentStoreContext): Persisten
         console.error('Error importing document:', error)
         throw error
       }
+    },
+
+    applyImportPreview: (preview, options) => {
+      const importedDoc = {
+        ...preview.document,
+        mindMapLayout: normalizeMindMapLayoutState(preview.document.mindMapLayout),
+      }
+
+      if (options.mode === 'newDocument' || !get().currentDoc) {
+        const collapsedIds = new Set<string>()
+        collectCollapsedIds(importedDoc.root, collapsedIds)
+        const firstNodeId = importedDoc.root.children.length > 0 ? importedDoc.root.children[0].id : importedDoc.root.id
+
+        set({
+          currentDoc: importedDoc,
+          currentFilePath: null,
+          isDirty: true,
+          collapsedNodeIds: collapsedIds,
+          selectedNodeId: firstNodeId,
+          focusedNodeId: null,
+          focusRequestSeq: 0,
+          saveStatus: 'idle',
+          ...clearHistoryState(importedDoc, firstNodeId, collapsedIds, { isDirty: true }),
+        })
+        return
+      }
+
+      const before = beginMutation()
+      const { currentDoc, collapsedNodeIds, selectedNodeId } = get()
+      if (!currentDoc || !before) return
+
+      const now = Date.now()
+      const importedNodes = cloneOutlineNodesWithFreshIds(importedDoc.root.children, now)
+      if (importedNodes.length === 0) return
+
+      const importedCollapsedIds = new Set<string>()
+      importedNodes.forEach((node) => collectCollapsedIds(node, importedCollapsedIds))
+      const nextCollapsedIds = new Set([...collapsedNodeIds, ...importedCollapsedIds])
+      const targetNodeId = options.mode === 'appendToSelection' && selectedNodeId
+        ? selectedNodeId
+        : currentDoc.root.id
+      const targetPath = findPath(currentDoc.root, targetNodeId) ?? []
+      nextCollapsedIds.delete(targetNodeId)
+
+      const newRoot = updateNodeAtPath(currentDoc.root, targetPath, (targetNode) => ({
+        ...targetNode,
+        children: [...targetNode.children, ...importedNodes],
+      }))
+
+      set({
+        currentDoc: {
+          ...currentDoc,
+          root: newRoot,
+          updatedAt: now,
+        },
+        collapsedNodeIds: nextCollapsedIds,
+        selectedNodeId: importedNodes[0].id,
+        focusedNodeId: importedNodes[0].id,
+        focusRequestSeq: get().focusRequestSeq + 1,
+        isDirty: true,
+      })
+      setHistoryAfterMutation(before)
     },
   }
 }

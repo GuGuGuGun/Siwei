@@ -1,4 +1,12 @@
-import type { MindMapLayoutPosition, MindMapLayoutState, OutlineDocument } from '../../types/document'
+import type {
+  ExportFormat,
+  ImportApplyOptions,
+  ImportFormat,
+  ImportPreview,
+  MindMapLayoutPosition,
+  MindMapLayoutState,
+  OutlineDocument,
+} from '../../types/document'
 import type { AgentChangePlan, AgentMindMapInsertNodesParams } from '../agent/agentTypes'
 import type { CheckedFilter, OutlineFilterState } from '../filter/filterUtils'
 
@@ -56,8 +64,9 @@ export interface DocumentState {
   newDoc: () => Promise<void>
   loadDoc: (path: string) => Promise<void>
   saveDoc: (customPath?: string | null) => Promise<boolean>
-  exportDoc: (path: string, format: 'json' | 'markdown') => Promise<void>
-  importDoc: (path: string, format: 'json' | 'markdown') => Promise<void>
+  exportDoc: (path: string, format: ExportFormat) => Promise<void>
+  importDoc: (path: string, format: ImportFormat) => Promise<void>
+  applyImportPreview: (preview: ImportPreview, options: ImportApplyOptions) => void
   canDiscardCurrentDoc: () => boolean
   setViewMode: (mode: ViewMode) => void
   selectNode: (nodeId: string | null) => void

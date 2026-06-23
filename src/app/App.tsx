@@ -16,10 +16,16 @@ import { OutlineEditor } from '../features/outline/OutlineEditor'
 import { SearchPanel } from '../features/search/SearchPanel'
 import { SettingsPage } from '../features/settings/SettingsPage'
 import { useSettingsStore } from '../features/settings/settingsStore'
-import { openFileDialog, saveFileDialog } from '../services/siweiApi'
+import {
+  extensionForExportFormat,
+  openFileDialog,
+  previewImportDocument,
+  saveFileDialog,
+} from '../services/siweiApi'
+import type { ExportFormat, ImportApplyMode, ImportFormat, ImportPreview } from '../types/document'
 import { useAsyncOperation } from '../hooks/useAsyncOperation'
 import { AppHeader } from './components/AppHeader'
-import { ExportDialog, ImportDialog } from './components/DocumentDialogs'
+import { ExportDialog, ImportDialog, ImportPreviewDialog } from './components/DocumentDialogs'
 import { ViewSwitcher } from './components/ViewSwitcher'
 import { useAppInitialization } from './hooks/useAppInitialization'
 import { useAutoSave } from './hooks/useAutoSave'
@@ -42,10 +48,11 @@ export const App: React.FC = () => {
   const undo = useDocumentStore((s) => s.undo)
   const redo = useDocumentStore((s) => s.redo)
   const exportDoc = useDocumentStore((s) => s.exportDoc)
-  const importDoc = useDocumentStore((s) => s.importDoc)
+  const applyImportPreview = useDocumentStore((s) => s.applyImportPreview)
   const newDoc = useDocumentStore((s) => s.newDoc)
   const canDiscardCurrentDoc = useDocumentStore((s) => s.canDiscardCurrentDoc)
   const setViewMode = useDocumentStore((s) => s.setViewMode)
+  const selectedNodeId = useDocumentStore((s) => s.selectedNodeId)
   const settings = useSettingsStore((s) => s.settings)
   const updateSettings = useSettingsStore((s) => s.updateSettings)
   const activeWorkspaceView = useWorkspaceStore((s) => s.activeView)
@@ -56,6 +63,7 @@ export const App: React.FC = () => {
   const [isImportOpen, setIsImportOpen] = React.useState(false)
   const [isExportOpen, setIsExportOpen] = React.useState(false)
   const [isCommandOpen, setIsCommandOpen] = React.useState(false)
+  const [pendingImportPreview, setPendingImportPreview] = React.useState<ImportPreview | null>(null)
   const runImport = useAsyncOperation({ errorPrefix: '导入失败' })
   const runExport = useAsyncOperation({ errorPrefix: '导出失败' })
   const runFocusMode = useAsyncOperation({ errorPrefix: '退出专注模式失败' })
@@ -67,30 +75,37 @@ export const App: React.FC = () => {
 
   const isMindMapVisible = activeWorkspaceView === 'editor' && (viewMode === 'mindmap' || viewMode === 'split')
 
-  const handleImport = async (format: 'json' | 'markdown') => {
-    if (!canDiscardCurrentDoc()) return
-
+  const handleImport = async (format: ImportFormat) => {
     await runImport(async () => {
-      const filters = format === 'markdown' ? ['md', 'markdown'] : ['siwei.json', 'json']
+      const filters = importFilters(format)
       const path = await openFileDialog(filters)
       if (!path) return
 
-      await importDoc(path, format)
-      toast.success(`成功缝合导入 ${format === 'markdown' ? 'Markdown' : 'JSON'} 大纲`)
+      const preview = await previewImportDocument(path, format)
+      setPendingImportPreview(preview)
       setIsImportOpen(false)
     })
   }
 
-  const handleExport = async (format: 'json' | 'markdown') => {
+  const handleConfirmImport = (mode: ImportApplyMode) => {
+    if (!pendingImportPreview) return
+    if (mode === 'newDocument' && !canDiscardCurrentDoc()) return
+
+    applyImportPreview(pendingImportPreview, { mode })
+    toast.success('导入内容已应用')
+    setPendingImportPreview(null)
+  }
+
+  const handleExport = async (format: ExportFormat) => {
     if (!currentDoc) return
 
     await runExport(async () => {
-      const defaultName = `${currentDoc.title || '未命名织物'}.${format === 'markdown' ? 'md' : 'siwei.json'}`
+      const defaultName = `${currentDoc.title || '未命名织物'}.${extensionForExportFormat(format)}`
       const path = await saveFileDialog(defaultName)
       if (!path) return
 
       await exportDoc(path, format)
-      toast.success(`成功导出 ${format === 'markdown' ? 'Markdown' : 'JSON'} 贴布文件`)
+      toast.success(`成功导出 ${exportFormatLabel(format)} 文件`)
       setIsExportOpen(false)
     })
   }
@@ -206,6 +221,13 @@ export const App: React.FC = () => {
         onClose={() => setIsImportOpen(false)}
         onImport={handleImport}
       />
+      <ImportPreviewDialog
+        isOpen={Boolean(pendingImportPreview)}
+        preview={pendingImportPreview}
+        hasSelectedNode={Boolean(selectedNodeId)}
+        onClose={() => setPendingImportPreview(null)}
+        onConfirm={handleConfirmImport}
+      />
       <ExportDialog
         isOpen={isExportOpen}
         isMindMapVisible={isMindMapVisible}
@@ -217,6 +239,34 @@ export const App: React.FC = () => {
       <ToastContainer />
     </div>
   )
+}
+
+function importFilters(format: ImportFormat): string[] {
+  switch (format) {
+    case 'markdown':
+      return ['md', 'markdown']
+    case 'opml':
+      return ['opml']
+    case 'json':
+    default:
+      return ['siwei.json', 'json']
+  }
+}
+
+function exportFormatLabel(format: ExportFormat): string {
+  switch (format) {
+    case 'markdown':
+      return 'Markdown'
+    case 'opml':
+      return 'OPML'
+    case 'html':
+      return 'HTML'
+    case 'text':
+      return '纯文本'
+    case 'json':
+    default:
+      return 'JSON'
+  }
 }
 
 export default App

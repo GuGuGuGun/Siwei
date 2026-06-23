@@ -1,9 +1,7 @@
 use serde_json::{json, Value};
 
 use crate::{
-    models::AgentDocumentContext,
-    services::agent::protocol::AgentToolCall,
-    utils::error::AppResult,
+    models::AgentDocumentContext, services::agent::protocol::AgentToolCall, utils::error::AppResult,
 };
 
 pub(crate) fn openai_assistant_tool_call_message(tool_calls: &[AgentToolCall]) -> Value {

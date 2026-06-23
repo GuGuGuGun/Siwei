@@ -63,7 +63,11 @@ fn run_refresh_job(app_data_dir: PathBuf, job_id: String, paths: Vec<String>) ->
                 )?;
             }
             Err(error) => {
-                refresh_job::increment_refresh_task_failure(&job_id, error.user_message(), now_millis())?;
+                refresh_job::increment_refresh_task_failure(
+                    &job_id,
+                    error.user_message(),
+                    now_millis(),
+                )?;
                 break;
             }
         }

@@ -12,6 +12,8 @@ pub fn import_markdown(content: &str) -> Result<OutlineDocument, AppError> {
     let mut entries = Vec::new();
     let mut last_list_entry_index: Option<usize> = None;
     let mut fenced_code_marker: Option<String> = None;
+    let mut heading_stack: Vec<HeadingContext> = Vec::new();
+    let mut consumed_root_heading = false;
 
     for (line_index, line) in content.lines().enumerate() {
         if let Some(marker) = fenced_code_marker.as_ref() {
@@ -27,13 +29,46 @@ pub fn import_markdown(content: &str) -> Result<OutlineDocument, AppError> {
             continue;
         }
 
-        if let Some(entry) = parse_list_line(line, line_index + 1)? {
+        if let Some((level, heading_text)) = parse_heading_line(line) {
+            if level == 1 && !consumed_root_heading {
+                consumed_root_heading = true;
+                continue;
+            }
+
+            let depth = heading_stack
+                .iter()
+                .rev()
+                .find(|heading| heading.level < level)
+                .map(|heading| heading.depth + 1)
+                .unwrap_or(0);
+            heading_stack.retain(|heading| heading.level < level);
+            heading_stack.push(HeadingContext { level, depth });
+            entries.push(ListEntry {
+                line: line_index + 1,
+                depth,
+                text: heading_text,
+                checked: None,
+                tags: None,
+                note: None,
+            });
+            last_list_entry_index = Some(entries.len() - 1);
+            continue;
+        }
+
+        let base_depth = heading_stack
+            .last()
+            .map(|heading| heading.depth + 1)
+            .unwrap_or(0);
+
+        if let Some(mut entry) = parse_list_line(line, line_index + 1)? {
+            entry.depth += base_depth;
             entries.push(entry);
             last_list_entry_index = Some(entries.len() - 1);
             continue;
         }
 
-        if let Some(note_line) = parse_note_line(line, line_index + 1)? {
+        if let Some(mut note_line) = parse_note_line(line, line_index + 1)? {
+            note_line.depth += base_depth;
             if let Some(entry_index) = last_list_entry_index {
                 let entry = &mut entries[entry_index];
                 if note_line.depth == entry.depth + 1 {
@@ -100,6 +135,31 @@ struct ListEntry {
 struct NoteLine {
     depth: usize,
     text: String,
+}
+
+#[derive(Debug, Clone)]
+struct HeadingContext {
+    level: usize,
+    depth: usize,
+}
+
+fn parse_heading_line(line: &str) -> Option<(usize, String)> {
+    let trimmed = line.trim_start();
+    let level = trimmed
+        .chars()
+        .take_while(|character| *character == '#')
+        .count();
+    if level == 0 || level > 6 {
+        return None;
+    }
+
+    let rest = &trimmed[level..];
+    if !rest.starts_with(' ') {
+        return None;
+    }
+
+    let text = rest.trim().trim_end_matches('#').trim().to_string();
+    (!text.is_empty()).then_some((level, text))
 }
 
 fn parse_list_line(line: &str, line_number: usize) -> Result<Option<ListEntry>, AppError> {
@@ -337,6 +397,31 @@ mod tests {
         assert_eq!(doc.root.children[0].children[0].text, "Commands");
         assert_eq!(doc.root.children[0].children[1].text, "Services");
         assert_eq!(doc.root.children[1].text, "Frontend");
+    }
+
+    #[test]
+    fn imports_heading_hierarchy_and_attaches_lists_to_nearest_heading() {
+        let doc = import_markdown(
+            "# Roadmap\n\n## Phase A\n- Task A\n  - Child A\n### Detail A\n- Detail task\n## Phase B\n#### Skipped level\n- Nested by heading",
+        )
+        .unwrap();
+
+        assert_eq!(doc.title, "Roadmap");
+        assert_eq!(doc.root.children.len(), 2);
+        assert_eq!(doc.root.children[0].text, "Phase A");
+        assert_eq!(doc.root.children[0].children[0].text, "Task A");
+        assert_eq!(doc.root.children[0].children[0].children[0].text, "Child A");
+        assert_eq!(doc.root.children[0].children[1].text, "Detail A");
+        assert_eq!(
+            doc.root.children[0].children[1].children[0].text,
+            "Detail task"
+        );
+        assert_eq!(doc.root.children[1].text, "Phase B");
+        assert_eq!(doc.root.children[1].children[0].text, "Skipped level");
+        assert_eq!(
+            doc.root.children[1].children[0].children[0].text,
+            "Nested by heading"
+        );
     }
 
     #[test]

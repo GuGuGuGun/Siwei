@@ -4,12 +4,17 @@ use rusqlite::{params, Connection};
 
 use crate::{
     models::{
-        LibraryDocumentItem, LibraryDocumentQuery, LibraryDocumentStatus,
-        LibraryPage, LibraryRefreshFailureReason, LibraryRefreshStatus,
-        LibrarySearchQuery, LibrarySearchResult,
+        LibraryDocumentItem, LibraryDocumentQuery, LibraryDocumentStatus, LibraryPage,
+        LibraryRefreshFailureReason, LibraryRefreshStatus, LibrarySearchQuery, LibrarySearchResult,
         LibraryTagQuery, LibraryTagSummary, LibraryTaskQuery, LibraryTaskSummary,
     },
-    services::{file_service, library::{aggregator, codec::*, indexer, query as library_query, refresh_job, refresh_worker, repository, search_repo, tree::set_node_checked}},
+    services::{
+        file_service,
+        library::{
+            aggregator, codec::*, indexer, query as library_query, refresh_job, refresh_worker,
+            repository, search_repo, tree::set_node_checked,
+        },
+    },
     utils::error::{AppError, AppResult},
 };
 

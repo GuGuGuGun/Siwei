@@ -100,7 +100,11 @@ pub fn increment_refresh_skipped(job_id: &str, now: u64) -> AppResult<()> {
     })
 }
 
-pub fn set_refresh_current_path(job_id: &str, current_path: Option<String>, now: u64) -> AppResult<()> {
+pub fn set_refresh_current_path(
+    job_id: &str,
+    current_path: Option<String>,
+    now: u64,
+) -> AppResult<()> {
     update_refresh_job(job_id, |job| {
         job.current_path = current_path;
         job.updated_at = Some(now);

@@ -47,6 +47,43 @@ export interface OutlineNode {
   children: OutlineNode[]
 }
 
+export type ImportFormat = 'json' | 'markdown' | 'opml'
+export type ExportFormat = 'json' | 'markdown' | 'opml' | 'html' | 'text'
+
+export interface ImportPreview {
+  document: OutlineDocument
+  summary: ImportSummary
+  report: ImportReport
+}
+
+export interface ImportSummary {
+  title: string
+  nodeCount: number
+  maxDepth: number
+  taskCount: number
+  tagCount: number
+  noteCount: number
+  warningCount: number
+}
+
+export interface ImportReport {
+  items: ImportReportItem[]
+}
+
+export interface ImportReportItem {
+  severity: 'info' | 'warning'
+  nodePath: string[]
+  field: string
+  value: string
+  action: string
+}
+
+export type ImportApplyMode = 'newDocument' | 'appendToRoot' | 'appendToSelection'
+
+export interface ImportApplyOptions {
+  mode: ImportApplyMode
+}
+
 export interface RecentDocItem {
   path: string
   title: string

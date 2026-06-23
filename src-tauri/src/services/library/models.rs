@@ -1,6 +1,4 @@
-use crate::models::{
-    LibraryDocumentStatus, LibraryRefreshFailureReason, LibrarySearchMatchSource,
-};
+use crate::models::{LibraryDocumentStatus, LibraryRefreshFailureReason, LibrarySearchMatchSource};
 
 #[derive(Debug, Clone)]
 pub(crate) struct IndexedNode {

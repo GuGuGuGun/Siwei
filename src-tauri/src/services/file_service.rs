@@ -447,28 +447,30 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("doc.siwei.json");
         let mut doc = sample_doc("Orphans", "child_a");
-        doc.mind_map_layout = Some(serde_json::from_value(serde_json::json!({
-            "engineVersion": 3,
-            "strategy": "free-canvas",
-            "nodes": {
-                "root_child_a": {
-                    "position": { "x": 0, "y": 0 },
-                    "source": "manual",
-                    "locked": true
-                },
-                "child_a": {
-                    "position": { "x": 120, "y": 80 },
-                    "source": "incremental",
-                    "locked": false
-                },
-                "orphan": {
-                    "position": { "x": 999, "y": 999 },
-                    "source": "manual",
-                    "locked": true
+        doc.mind_map_layout = Some(
+            serde_json::from_value(serde_json::json!({
+                "engineVersion": 3,
+                "strategy": "free-canvas",
+                "nodes": {
+                    "root_child_a": {
+                        "position": { "x": 0, "y": 0 },
+                        "source": "manual",
+                        "locked": true
+                    },
+                    "child_a": {
+                        "position": { "x": 120, "y": 80 },
+                        "source": "incremental",
+                        "locked": false
+                    },
+                    "orphan": {
+                        "position": { "x": 999, "y": 999 },
+                        "source": "manual",
+                        "locked": true
+                    }
                 }
-            }
-        }))
-        .unwrap());
+            }))
+            .unwrap(),
+        );
 
         save_document(&path, &doc).unwrap();
         let saved = fs::read_to_string(&path).unwrap();

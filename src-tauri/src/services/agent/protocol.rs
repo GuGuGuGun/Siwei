@@ -72,9 +72,8 @@ impl PartialToolCall {
         let arguments = if self.arguments_json.trim().is_empty() {
             Value::Object(Default::default())
         } else {
-            serde_json::from_str(&self.arguments_json).map_err(|error| {
-                format!("工具调用 {} 参数不是合法 JSON: {error}", self.id)
-            })?
+            serde_json::from_str(&self.arguments_json)
+                .map_err(|error| format!("工具调用 {} 参数不是合法 JSON: {error}", self.id))?
         };
         let name = self
             .name

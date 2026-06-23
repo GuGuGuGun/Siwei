@@ -12,6 +12,7 @@ vi.mock('../../services/siweiApi', () => ({
   exportJson: vi.fn(),
   importMarkdown: vi.fn(),
   importJson: vi.fn(),
+  previewImportDocument: vi.fn(),
   addRecentDoc: vi.fn(),
   saveFileDialog: vi.fn(),
   refreshLibraryDoc: vi.fn(),
@@ -40,6 +41,7 @@ describe('documentStore', () => {
       redoStack: [],
       cleanSnapshotKey: null,
       activeTextEditSession: null,
+      outlineSelection: { anchorNodeId: null, selectedNodeIds: [] },
     })
     apiMock.refreshLibraryDoc.mockResolvedValue({
       documentId: 'doc-1',
@@ -614,6 +616,103 @@ describe('documentStore', () => {
       '第二节点',
     ])
     expect(useDocumentStore.getState().canUndo).toBe(false)
+  })
+
+  it('applies an import preview as a new unsaved document', async () => {
+    const imported = createDocument()
+
+    useDocumentStore.getState().applyImportPreview({
+      document: imported,
+      summary: {
+        title: imported.title,
+        nodeCount: 2,
+        maxDepth: 2,
+        taskCount: 0,
+        tagCount: 0,
+        noteCount: 0,
+        warningCount: 0,
+      },
+      report: { items: [] },
+    }, { mode: 'newDocument' })
+
+    expect(useDocumentStore.getState().currentDoc?.id).toBe(imported.id)
+    expect(useDocumentStore.getState().currentFilePath).toBeNull()
+    expect(useDocumentStore.getState().isDirty).toBe(true)
+    expect(useDocumentStore.getState().canUndo).toBe(false)
+  })
+
+  it('appends an import preview to the root as one undoable transaction', async () => {
+    await loadFixtureDoc()
+    const imported = {
+      ...createDocument(),
+      root: {
+        ...createDocument().root,
+        children: [
+          createDocument().root.children[0],
+          createDocument().root.children[1],
+        ],
+      },
+    }
+
+    useDocumentStore.getState().applyImportPreview({
+      document: imported,
+      summary: {
+        title: imported.title,
+        nodeCount: 2,
+        maxDepth: 2,
+        taskCount: 0,
+        tagCount: 0,
+        noteCount: 0,
+        warningCount: 0,
+      },
+      report: { items: [] },
+    }, { mode: 'appendToRoot' })
+
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.text)).toEqual([
+      '第一节点',
+      '第二节点',
+      '第一节点',
+      '第二节点',
+    ])
+    expect(useDocumentStore.getState().selectedNodeId).not.toBe('node-1')
+    expect(useDocumentStore.getState().canUndo).toBe(true)
+
+    useDocumentStore.getState().undo()
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.text)).toEqual([
+      '第一节点',
+      '第二节点',
+    ])
+  })
+
+  it('appends an import preview to the selected node and expands it', async () => {
+    await loadFixtureDoc()
+    useDocumentStore.setState({
+      selectedNodeId: 'node-1',
+      collapsedNodeIds: new Set(['node-1']),
+    })
+    const imported = createDocument()
+
+    useDocumentStore.getState().applyImportPreview({
+      document: imported,
+      summary: {
+        title: imported.title,
+        nodeCount: 1,
+        maxDepth: 1,
+        taskCount: 0,
+        tagCount: 0,
+        noteCount: 0,
+        warningCount: 0,
+      },
+      report: { items: [] },
+    }, { mode: 'appendToSelection' })
+
+    expect(useDocumentStore.getState().currentDoc?.root.children[0].children.map((node) => node.text)).toEqual([
+      '第一子节点',
+      '第一节点',
+      '第二节点',
+    ])
+    expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(false)
+    expect(useDocumentStore.getState().canUndo).toBe(true)
   })
 
   it('rejects agent mind map tool requests with empty descendant titles', async () => {

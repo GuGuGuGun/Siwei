@@ -62,7 +62,10 @@ fn settings_path(app_data_dir: &Path) -> PathBuf {
 mod tests {
     use tempfile::tempdir;
 
-    use crate::models::{settings::{DefaultViewMode, ThemeMode}, AppSettings};
+    use crate::models::{
+        settings::{DefaultViewMode, ThemeMode},
+        AppSettings,
+    };
 
     use super::{get_settings, update_settings};
 

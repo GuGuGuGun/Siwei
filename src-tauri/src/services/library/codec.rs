@@ -1,9 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
-    models::{
-        LibraryDocumentStatus, LibraryRefreshFailureReason, LibrarySearchMatchSource,
-    },
+    models::{LibraryDocumentStatus, LibraryRefreshFailureReason, LibrarySearchMatchSource},
     utils::error::AppError,
 };
 
