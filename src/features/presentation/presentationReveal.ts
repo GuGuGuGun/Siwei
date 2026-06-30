@@ -5,6 +5,14 @@ export interface PresentationNodeMeta {
   childCount: number
 }
 
+export interface RevealProgress {
+  currentDepth: number
+  maxDepth: number
+  currentStep: number
+  totalSteps: number
+  label: string
+}
+
 export function getMaxRevealDepth(root: OutlineNode): number {
   let maxDepth = 0
 
@@ -15,6 +23,21 @@ export function getMaxRevealDepth(root: OutlineNode): number {
 
   visit(root, 0)
   return maxDepth
+}
+
+export function createRevealProgress(root: OutlineNode, revealDepth: number): RevealProgress {
+  const maxDepth = getMaxRevealDepth(root)
+  const currentDepth = Math.min(maxDepth, Math.max(0, revealDepth))
+  const currentStep = currentDepth + 1
+  const totalSteps = maxDepth + 1
+
+  return {
+    currentDepth,
+    maxDepth,
+    currentStep,
+    totalSteps,
+    label: `第 ${currentStep} / ${totalSteps} 层`,
+  }
 }
 
 export function createVisibleNodeIdSet(root: OutlineNode, revealDepth: number): Set<string> {

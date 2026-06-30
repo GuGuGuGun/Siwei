@@ -213,6 +213,60 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: '退出演示' })).toBeInTheDocument()
   })
 
+  it('shows presentation progress and keeps the outline stage centered', async () => {
+    useDocumentStore.setState({ viewMode: 'outline' })
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '演示模式' }))
+    const outlineButtons = screen.getAllByRole('button', { name: '大纲' })
+    fireEvent.click(outlineButtons[outlineButtons.length - 1])
+
+    expect(screen.getByText('第 2 / 3 层')).toBeInTheDocument()
+    expect(screen.getByTestId('presentation-outline-stage')).toHaveClass('items-center')
+    expect(screen.getByTestId('presentation-outline-scroll')).toHaveClass('max-h-full')
+
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }))
+
+    expect(screen.getByText('第 3 / 3 层')).toBeInTheDocument()
+    expect(screen.getByText('第一子节点')).toBeInTheDocument()
+  })
+
+  it('toggles browser fullscreen from presentation mode', async () => {
+    let fullscreenElement: Element | null = null
+    const requestFullscreen = vi.fn(() => {
+      fullscreenElement = document.documentElement
+      return Promise.resolve()
+    })
+    const exitFullscreen = vi.fn(() => {
+      fullscreenElement = null
+      return Promise.resolve()
+    })
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable: true,
+      get: () => fullscreenElement,
+    })
+    Object.defineProperty(document.documentElement, 'requestFullscreen', {
+      configurable: true,
+      value: requestFullscreen,
+    })
+    Object.defineProperty(document, 'exitFullscreen', {
+      configurable: true,
+      value: exitFullscreen,
+    })
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '演示模式' }))
+    const fullscreenButton = screen.getByRole('button', { name: '全屏展示' })
+
+    fireEvent.click(fullscreenButton)
+    expect(requestFullscreen).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(fullscreenButton)
+    expect(exitFullscreen).toHaveBeenCalledTimes(1)
+  })
+
   it('opens presentation mode from the command palette', async () => {
     render(<App />)
 

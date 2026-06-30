@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactFlow, { Background, Controls, MiniMap, type Edge, type Node, type NodeProps } from 'reactflow'
-import { ChevronLeft, ChevronRight, Fullscreen, LogOut, Network, Rows3 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Fullscreen, LogOut, Minimize, Network, Rows3 } from 'lucide-react'
 import type { OutlineDocument, OutlineNode } from '../../types/document'
 import type { ViewMode } from '../document/documentStore'
 import { OutlineInlineContent } from '../outline/OutlineInlineContent'
@@ -8,6 +8,7 @@ import { outlineToGraph } from '../mindmap/outlineToGraph'
 import { layoutGraph } from '../mindmap/layoutGraph'
 import {
   collectPresentationNodeMeta,
+  createRevealProgress,
   createVisibleNodeIdSet,
   getMaxRevealDepth,
 } from './presentationReveal'
@@ -39,14 +40,23 @@ export const PresentationView: React.FC<PresentationViewProps> = ({
   const [mode, setMode] = React.useState<PresentationMode>(
     initialViewMode === 'outline' ? 'outline' : 'mindmap',
   )
+  const [isFullscreen, setIsFullscreen] = React.useState(Boolean(document.fullscreenElement))
   const maxRevealDepth = React.useMemo(() => getMaxRevealDepth(currentDoc.root), [currentDoc.root])
   const [revealDepth, setRevealDepth] = React.useState(Math.min(1, maxRevealDepth))
-  const visibleNodeIds = React.useMemo(
-    () => createVisibleNodeIdSet(currentDoc.root, revealDepth),
+  const progress = React.useMemo(
+    () => createRevealProgress(currentDoc.root, revealDepth),
     [currentDoc.root, revealDepth],
   )
-  const canStepBackward = revealDepth > 0
-  const canStepForward = revealDepth < maxRevealDepth
+  const visibleNodeIds = React.useMemo(
+    () => createVisibleNodeIdSet(currentDoc.root, progress.currentDepth),
+    [currentDoc.root, progress.currentDepth],
+  )
+  const canStepBackward = progress.currentDepth > 0
+  const canStepForward = progress.currentDepth < progress.maxDepth
+
+  React.useEffect(() => {
+    setRevealDepth((depth) => Math.min(depth, maxRevealDepth))
+  }, [maxRevealDepth])
 
   const stepForward = React.useCallback(() => {
     setRevealDepth((depth) => Math.min(maxRevealDepth, depth + 1))
@@ -77,9 +87,23 @@ export const PresentationView: React.FC<PresentationViewProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onExit, stepBackward, stepForward])
 
-  const enterFullscreen = () => {
+  React.useEffect(() => {
+    const syncFullscreenState = () => setIsFullscreen(Boolean(document.fullscreenElement))
+
+    document.addEventListener('fullscreenchange', syncFullscreenState)
+    return () => document.removeEventListener('fullscreenchange', syncFullscreenState)
+  }, [])
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      if (document.exitFullscreen) {
+        void document.exitFullscreen()
+      }
+      return
+    }
+
     const target = document.documentElement
-    if (!document.fullscreenElement && target.requestFullscreen) {
+    if (target.requestFullscreen) {
       void target.requestFullscreen()
     }
   }
@@ -93,6 +117,9 @@ export const PresentationView: React.FC<PresentationViewProps> = ({
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-amber-900/10 bg-white/70 px-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/70">
         <div className="min-w-0 truncate text-sm font-semibold">{currentDoc.title || '未命名文档'}</div>
         <div className="flex items-center gap-1.5">
+          <div className="mr-1 hidden rounded-md border border-amber-900/10 bg-white/60 px-2 py-1 text-xs font-medium text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400 sm:block">
+            {progress.label}
+          </div>
           <ModeButton active={mode === 'outline'} label="大纲" icon={Rows3} onClick={() => setMode('outline')} />
           <ModeButton active={mode === 'mindmap'} label="导图" icon={Network} onClick={() => setMode('mindmap')} />
           <div className="mx-1 h-4 w-px bg-zinc-200 dark:bg-zinc-700" />
@@ -109,8 +136,8 @@ export const PresentationView: React.FC<PresentationViewProps> = ({
             下一步
             <ChevronRight size={14} />
           </button>
-          <IconButton label="全屏展示" onClick={enterFullscreen}>
-            <Fullscreen size={15} />
+          <IconButton label={isFullscreen ? '退出全屏' : '全屏展示'} onClick={toggleFullscreen}>
+            {isFullscreen ? <Minimize size={15} /> : <Fullscreen size={15} />}
           </IconButton>
           <IconButton label="退出演示" onClick={onExit}>
             <LogOut size={15} />
@@ -133,20 +160,28 @@ const PresentationOutline: React.FC<{
   root: OutlineNode
   visibleNodeIds: Set<string>
 }> = ({ root, visibleNodeIds }) => (
-  <div className="h-full overflow-y-auto px-10 py-8">
-    <div className="mx-auto max-w-4xl">
-      <h1 className="mb-8 border-b border-dashed border-amber-900/20 pb-4 text-3xl font-bold">
-        <OutlineInlineContent text={root.text} />
-      </h1>
-      <div className="space-y-2">
-        {root.children.map((child) => (
-          <PresentationOutlineNode
-            key={child.id}
-            node={child}
-            depth={0}
-            visibleNodeIds={visibleNodeIds}
-          />
-        ))}
+  <div
+    data-testid="presentation-outline-stage"
+    className="flex h-full items-center justify-center overflow-hidden px-4 py-6 sm:px-10"
+  >
+    <div
+      data-testid="presentation-outline-scroll"
+      className="h-full max-h-full w-full max-w-5xl overflow-y-auto overscroll-contain px-2 py-4"
+    >
+      <div className="mx-auto flex min-h-full max-w-4xl flex-col justify-center">
+        <h1 className="mb-8 border-b border-dashed border-amber-900/20 pb-4 text-3xl font-bold leading-tight [overflow-wrap:anywhere]">
+          <OutlineInlineContent text={root.text} />
+        </h1>
+        <div className="space-y-2">
+          {root.children.map((child) => (
+            <PresentationOutlineNode
+              key={child.id}
+              node={child}
+              depth={0}
+              visibleNodeIds={visibleNodeIds}
+            />
+          ))}
+        </div>
       </div>
     </div>
   </div>
@@ -162,14 +197,14 @@ const PresentationOutlineNode: React.FC<{
   return (
     <div className="animate-in fade-in slide-in-from-bottom-1 duration-200" style={{ marginLeft: depth * 24 }}>
       <div className="rounded-lg border border-amber-900/10 bg-white/70 px-3 py-2 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/70">
-        <div className="text-sm font-medium leading-relaxed">
+        <div className="text-sm font-medium leading-relaxed [overflow-wrap:anywhere]">
           {node.checked !== undefined && (
             <span className="mr-2 font-mono text-xs text-emerald-700">{node.checked ? '[x]' : '[ ]'}</span>
           )}
           <OutlineInlineContent text={node.text || '空白节点'} />
         </div>
         {node.note?.trim() && (
-          <div className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-zinc-500">{node.note}</div>
+          <div className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-zinc-500 [overflow-wrap:anywhere]">{node.note}</div>
         )}
       </div>
       <div className="mt-2 space-y-2">
@@ -245,7 +280,7 @@ function PresentationMindMapNode({ data }: NodeProps<PresentationNodeData>) {
   const visualDepth = Math.min(data.depth, 3)
   return (
     <div className="min-w-[170px] max-w-[240px] rounded-xl border-2 border-dashed border-amber-900/20 bg-[#FAF6EC] px-3 py-2 text-center shadow-fabric">
-      <div className={`${visualDepth === 0 ? 'text-sm font-bold' : 'text-xs font-semibold'} leading-relaxed text-zinc-800`}>
+      <div className={`${visualDepth === 0 ? 'text-sm font-bold' : 'text-xs font-semibold'} leading-relaxed text-zinc-800 [overflow-wrap:anywhere]`}>
         {data.checked !== undefined && (
           <span className="mr-1 font-mono text-[10px] text-emerald-700">{data.checked ? '[x]' : '[ ]'}</span>
         )}

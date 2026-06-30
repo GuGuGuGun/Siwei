@@ -346,6 +346,33 @@ mod tests {
         assert!(text.contains("> 节点备注"));
     }
 
+    #[test]
+    fn export_html_escapes_script_breakouts_and_supports_stable_reading_layout() {
+        let dir = tempdir().unwrap();
+        let html_path = dir.path().join("unsafe.html");
+        let mut doc = sample_doc_with_metadata();
+        doc.title = "演示 </script><script>alert(1)</script>".to_string();
+        doc.root.text = "根 <strong>标题</strong>".to_string();
+        doc.root.children[0].text =
+            "这是一段很长很长的节点文本，用于验证分享包里的大纲和导图节点可以稳定换行，不会把容器撑破或遮挡后续内容 </script><img src=x onerror=alert(1)>"
+                .to_string();
+        doc.root.children[0].note = Some("备注 <strong>需要转义</strong>".to_string());
+        doc.root.children[0].tags = Some(vec!["标签<script>".to_string()]);
+
+        export_html(html_path.display().to_string(), doc).unwrap();
+
+        let html = fs::read_to_string(html_path).unwrap();
+        assert!(html.contains(r#"\u003C/script\u003E"#));
+        assert!(!html.contains("</script><script>alert(1)</script>"));
+        assert!(!html.contains("<img src=x"));
+        assert!(html.contains("&lt;strong&gt;需要转义&lt;/strong&gt;"));
+        assert!(html.contains("overflow-wrap:anywhere"));
+        assert!(html.contains(r#"data-action="fit-map""#));
+        assert!(html.contains(r#"data-action="reset-map""#));
+        assert!(html.contains("aria-pressed"));
+        assert!(html.contains("node-label"));
+    }
+
     fn sample_doc_with_metadata() -> OutlineDocument {
         let mut task = node("task", "发布计划", Vec::new());
         task.note = Some("节点备注".to_string());
