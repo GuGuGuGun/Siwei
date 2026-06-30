@@ -6,10 +6,12 @@ export const ButtonToggle: React.FC<{ isCollapsed: boolean; onClick: () => void 
 }) => {
   return (
     <button
+      type="button"
       onClick={(event) => {
         event.stopPropagation()
         onClick()
       }}
+      aria-label={isCollapsed ? '展开节点' : '折叠节点'}
       className="relative flex h-4 w-4 items-center justify-center rounded-full border border-amber-900/25 bg-[#FAF6EC] shadow-sm transition-all hover:scale-105 active:scale-95 focus:outline-none"
       title={isCollapsed ? '展开' : '折叠'}
     >

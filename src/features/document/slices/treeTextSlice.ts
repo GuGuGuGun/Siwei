@@ -86,17 +86,42 @@ export function createTreeTextSlice(context: DocumentStoreContext): TreeTextActi
     },
 
     toggleCollapse: (nodeId) => {
+      const { currentDoc, collapsedNodeIds } = get()
+      if (!currentDoc) return
+
+      const path = findPath(currentDoc.root, nodeId)
+      if (!path) return
+
+      let targetNode: OutlineNode = currentDoc.root
+      for (const idx of path) {
+        targetNode = targetNode.children[idx]
+      }
+
+      // 旧文件会把折叠态存到节点字段中；点击时必须按实际折叠态反转，并同步运行时集合与节点字段。
+      const nextCollapsed = !Boolean(targetNode.collapsed || collapsedNodeIds.has(nodeId))
       const before = beginMutation()
       if (!before) return
+      const now = Date.now()
+      const updatedRoot = updateNodeAtPath(currentDoc.root, path, (node) => ({
+        ...node,
+        collapsed: nextCollapsed,
+        updatedAt: now,
+      }))
+      const updatedDoc = {
+        ...currentDoc,
+        root: updatedRoot,
+        updatedAt: now,
+      }
 
       set((state) => {
         const newCollapsed = new Set(state.collapsedNodeIds)
-        if (newCollapsed.has(nodeId)) {
-          newCollapsed.delete(nodeId)
-        } else {
+        if (nextCollapsed) {
           newCollapsed.add(nodeId)
+        } else {
+          newCollapsed.delete(nodeId)
         }
         return {
+          currentDoc: updatedDoc,
           collapsedNodeIds: newCollapsed,
           isDirty: true,
         }

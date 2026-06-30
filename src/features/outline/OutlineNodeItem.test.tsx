@@ -227,6 +227,36 @@ describe('OutlineNodeItem', () => {
     expect(firstInput).toHaveValue('第一节点')
   })
 
+  it('expands a node that was loaded with a persisted collapsed flag from the outline toggle', () => {
+    const doc = createDocument()
+    useDocumentStore.setState({
+      currentDoc: {
+        ...doc,
+        root: {
+          ...doc.root,
+          children: [
+            {
+              ...doc.root.children[0],
+              collapsed: true,
+            },
+            doc.root.children[1],
+          ],
+        },
+      },
+      collapsedNodeIds: new Set(['node-1']),
+    })
+
+    render(<OutlineEditor />)
+
+    expect(screen.queryByText('第一子节点')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTitle('展开'))
+
+    expect(screen.getByText('第一子节点')).toBeInTheDocument()
+    expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(false)
+    expect(useDocumentStore.getState().currentDoc?.root.children[0].collapsed).toBe(false)
+  })
+
   it('selects a range and moves it with the batch shortcut', () => {
     useDocumentStore.setState({
       currentDoc: {

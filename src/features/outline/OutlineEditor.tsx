@@ -1,7 +1,7 @@
 import React from 'react'
 import { useDocumentStore } from '../document/documentStore'
 import { OutlineNodeItem } from './OutlineNodeItem'
-import { filterVisibleTree, summarizeTaskCompletion } from '../filter/filterUtils'
+import { filterVisibleTree } from '../filter/filterUtils'
 import { FileText, Plus } from 'lucide-react'
 import { NodeContextMenu } from '../document/NodeContextMenu'
 import { NodeDeleteDialog } from '../document/NodeDeleteDialog'
@@ -52,11 +52,6 @@ export const OutlineEditor: React.FC = () => {
     if (!currentDoc) return []
     return filterVisibleTree(currentDoc.root, collapsedNodeIds, filter).nodes
   }, [currentDoc, collapsedNodeIds, filter])
-
-  const taskSummary = React.useMemo(() => {
-    if (!currentDoc) return null
-    return summarizeTaskCompletion(currentDoc.root, filter)
-  }, [currentDoc, filter])
 
   const agentPreview = React.useMemo(
     () => createAgentDocumentPreview(pendingAgentPlan),
@@ -160,13 +155,6 @@ export const OutlineEditor: React.FC = () => {
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-        {taskSummary && (
-          <div className="rounded-md border border-amber-900/10 bg-[#FAF8F5] px-2.5 py-1">
-            {taskSummary.total > 0
-              ? `已完成 ${taskSummary.done}/${taskSummary.total}`
-              : '当前范围内没有待办'}
-          </div>
-        )}
         {hasMultiSelection && (
           <div className="flex items-center gap-1.5 rounded-md border border-amber-900/10 bg-[#FAF8F5] px-2.5 py-1">
             <span>{`已选择 ${selectedVisibleNodeIds.length} 个节点`}</span>
@@ -197,7 +185,7 @@ export const OutlineEditor: React.FC = () => {
             parentId={item.parentId}
             isSelected={selectedNodeId === item.node.id}
             isMultiSelected={selectedVisibleNodeIds.includes(item.node.id)}
-            isCollapsed={collapsedNodeIds.has(item.node.id)}
+            isCollapsed={Boolean(item.node.collapsed || collapsedNodeIds.has(item.node.id))}
             agentPreview={agentPreview.nodePreviews.get(item.node.id)}
             agentInsertions={agentPreview.insertionsByParentId.get(item.node.id) ?? []}
             onNavigate={(dir) => handleNavigate(item.node.id, dir)}
@@ -243,7 +231,7 @@ export const OutlineEditor: React.FC = () => {
         <NodeContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
-          isCollapsed={collapsedNodeIds.has(contextMenu.nodeId)}
+          isCollapsed={Boolean(contextNode.collapsed || collapsedNodeIds.has(contextMenu.nodeId))}
           operationState={getNodeOperationState(contextMenu.nodeId)}
           onAction={(action) => runAction(contextMenu.nodeId, action)}
         />

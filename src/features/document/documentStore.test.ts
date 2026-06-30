@@ -209,6 +209,30 @@ describe('documentStore', () => {
     expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(false)
   })
 
+  it('expands nodes whose persisted collapsed flag was hydrated into collapsed state', async () => {
+    const doc = createDocument()
+    await loadFixtureDoc({
+      ...doc,
+      root: {
+        ...doc.root,
+        children: [
+          {
+            ...doc.root.children[0],
+            collapsed: true,
+          },
+          doc.root.children[1],
+        ],
+      },
+    })
+
+    expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(true)
+
+    useDocumentStore.getState().toggleCollapse('node-1')
+
+    expect(useDocumentStore.getState().collapsedNodeIds.has('node-1')).toBe(false)
+    expect(useDocumentStore.getState().currentDoc?.root.children[0].collapsed).toBe(false)
+  })
+
   it('commits mind map layout changes into dirty undoable document state', async () => {
     await loadFixtureDoc()
 
