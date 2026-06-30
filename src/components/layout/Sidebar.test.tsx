@@ -53,4 +53,14 @@ describe('Sidebar', () => {
     expect(useWorkspaceStore.getState().activeView).toBe('settings')
     expect(screen.getByRole('button', { name: '设置' })).toHaveClass('bg-white')
   })
+
+  it('does not render the sidebar brand block', async () => {
+    render(<Sidebar />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '新建文档' })).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText('Siwei')).not.toBeInTheDocument()
+  })
 })

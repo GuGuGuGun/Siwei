@@ -108,23 +108,7 @@ export const Sidebar: React.FC = () => {
         isCollapsed ? 'w-16' : 'w-64'
       }`}
     >
-      {/* Brand Header */}
-      <div className="flex h-12 items-center justify-between px-4 shrink-0 mt-2 mb-2">
-        {!isCollapsed && (
-          <div className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-zinc-900 dark:bg-zinc-100 text-xs font-bold text-white dark:text-zinc-900 shadow-sm">
-              S
-            </div>
-            <span className="font-sans text-sm font-semibold tracking-wide text-zinc-800 dark:text-zinc-200">
-              Siwei
-            </span>
-          </div>
-        )}
-        {isCollapsed && (
-          <div className="mx-auto flex h-6 w-6 items-center justify-center rounded-md bg-zinc-900 dark:bg-zinc-100 text-xs font-bold text-white dark:text-zinc-900 shadow-sm">
-            S
-          </div>
-        )}
+      <div className="h-8 shrink-0 mt-2 mb-2">
         <button
           onClick={() => {
             void updateSettings({ sidebarCollapsed: !isCollapsed }).catch((error) => {
