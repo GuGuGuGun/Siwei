@@ -26,10 +26,11 @@ Thumbs.db
 *.siwei.json.tmp
 *.md.bak
 *.md.tmp
-
+.pnpm-store
 docs/
 .codex/
 .claude/
 .agents/
 .trellis
 AGENTS.md
+dist-release/
