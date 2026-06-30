@@ -9,12 +9,14 @@ import { CommandPalette } from '../components/common/CommandPalette'
 import { AgentPanel } from '../features/agent/AgentPanel'
 import { useAgentStore } from '../features/agent/agentStore'
 import { useDocumentStore } from '../features/document/documentStore'
+import { summarizeTaskCompletion } from '../features/filter/filterUtils'
 import { LibraryWorkspace } from '../features/library/LibraryWorkspace'
 import { mindMapExportController } from '../features/mindmap/mindMapExportController'
 import { MindMapView } from '../features/mindmap/MindMapView'
 import { OutlineEditor } from '../features/outline/OutlineEditor'
 import { SearchPanel } from '../features/search/SearchPanel'
 import { SettingsPage } from '../features/settings/SettingsPage'
+import { PresentationView } from '../features/presentation/PresentationView'
 import { useSettingsStore } from '../features/settings/settingsStore'
 import {
   extensionForExportFormat,
@@ -53,6 +55,7 @@ export const App: React.FC = () => {
   const canDiscardCurrentDoc = useDocumentStore((s) => s.canDiscardCurrentDoc)
   const setViewMode = useDocumentStore((s) => s.setViewMode)
   const selectedNodeId = useDocumentStore((s) => s.selectedNodeId)
+  const filter = useDocumentStore((s) => s.filter)
   const settings = useSettingsStore((s) => s.settings)
   const updateSettings = useSettingsStore((s) => s.updateSettings)
   const activeWorkspaceView = useWorkspaceStore((s) => s.activeView)
@@ -63,6 +66,7 @@ export const App: React.FC = () => {
   const [isImportOpen, setIsImportOpen] = React.useState(false)
   const [isExportOpen, setIsExportOpen] = React.useState(false)
   const [isCommandOpen, setIsCommandOpen] = React.useState(false)
+  const [isPresentationOpen, setIsPresentationOpen] = React.useState(false)
   const [pendingImportPreview, setPendingImportPreview] = React.useState<ImportPreview | null>(null)
   const runImport = useAsyncOperation({ errorPrefix: '导入失败' })
   const runExport = useAsyncOperation({ errorPrefix: '导出失败' })
@@ -74,6 +78,11 @@ export const App: React.FC = () => {
   })
 
   const isMindMapVisible = activeWorkspaceView === 'editor' && (viewMode === 'mindmap' || viewMode === 'split')
+  const taskSummaryLabel = React.useMemo(() => {
+    if (!currentDoc || activeWorkspaceView !== 'editor') return null
+    const summary = summarizeTaskCompletion(currentDoc.root, filter)
+    return summary.total > 0 ? `已完成 ${summary.done}/${summary.total}` : '当前范围内没有待办'
+  }, [activeWorkspaceView, currentDoc, filter])
 
   const handleImport = async (format: ImportFormat) => {
     await runImport(async () => {
@@ -115,6 +124,11 @@ export const App: React.FC = () => {
     setIsExportOpen(false)
   }
 
+  const handleOpenPresentation = () => {
+    if (!currentDoc) return
+    setIsPresentationOpen(true)
+  }
+
   const handleNewDoc = () => {
     if (!canDiscardCurrentDoc()) return
 
@@ -137,6 +151,7 @@ export const App: React.FC = () => {
             canUndo={canUndo}
             canRedo={canRedo}
             isAgentOpen={isAgentOpen}
+            taskSummaryLabel={taskSummaryLabel}
             onViewModeChange={setViewMode}
             onUndo={undo}
             onRedo={redo}
@@ -145,6 +160,7 @@ export const App: React.FC = () => {
             onToggleAgent={() => setAgentOpen(!isAgentOpen)}
             onOpenImport={() => setIsImportOpen(true)}
             onOpenExport={() => setIsExportOpen(true)}
+            onOpenPresentation={handleOpenPresentation}
             onSave={saveDoc}
           />
         )}
@@ -197,7 +213,16 @@ export const App: React.FC = () => {
         onNewDoc={handleNewDoc}
         onImport={() => setIsImportOpen(true)}
         onExport={() => setIsExportOpen(true)}
+        onOpenPresentation={handleOpenPresentation}
       />
+
+      {isPresentationOpen && currentDoc && (
+        <PresentationView
+          currentDoc={currentDoc}
+          initialViewMode={viewMode}
+          onExit={() => setIsPresentationOpen(false)}
+        />
+      )}
 
       {settings.focusMode && (
         <>

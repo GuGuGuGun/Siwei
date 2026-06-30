@@ -3,6 +3,7 @@ import {
   Command as CommandIcon,
   FileInput,
   FileOutput,
+  Presentation,
   Redo2,
   Save,
   Search,
@@ -19,6 +20,7 @@ interface AppHeaderProps {
   canUndo: boolean
   canRedo: boolean
   isAgentOpen: boolean
+  taskSummaryLabel?: string | null
   onViewModeChange: (viewMode: ViewMode) => void
   onUndo: () => void
   onRedo: () => void
@@ -27,6 +29,7 @@ interface AppHeaderProps {
   onToggleAgent: () => void
   onOpenImport: () => void
   onOpenExport: () => void
+  onOpenPresentation: () => void
   onSave: () => Promise<boolean>
 }
 
@@ -35,6 +38,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   canUndo,
   canRedo,
   isAgentOpen,
+  taskSummaryLabel,
   onViewModeChange,
   onUndo,
   onRedo,
@@ -43,6 +47,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   onToggleAgent,
   onOpenImport,
   onOpenExport,
+  onOpenPresentation,
   onSave,
 }) => {
   return (
@@ -53,8 +58,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       transition={{ duration: 0.16 }}
       className="z-10 grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 overflow-hidden border-b border-zinc-200/60 bg-white/60 px-4 backdrop-blur-md dark:border-zinc-800/60 dark:bg-zinc-900/60"
     >
-      <div className="flex min-w-0 items-center justify-start overflow-hidden">
+      <div className="flex min-w-0 items-center justify-start gap-2 overflow-hidden">
         <div className="cursor-default truncate px-2 text-sm font-medium text-zinc-600">Siwei Workspace</div>
+        {taskSummaryLabel && (
+          <div className="hidden shrink-0 rounded-md border border-amber-900/10 bg-[#FAF8F5] px-2.5 py-1 text-xs text-zinc-500 sm:inline-flex">
+            {taskSummaryLabel}
+          </div>
+        )}
       </div>
 
       <div className="flex min-w-0 items-center justify-center overflow-hidden">
@@ -111,6 +121,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           title="文档助理"
         >
           <Sparkles size={15} />
+        </button>
+
+        <button
+          type="button"
+          onClick={onOpenPresentation}
+          className="btn-patch-light flex h-8 w-8 items-center justify-center rounded-md focus:outline-none"
+          title="演示模式"
+          aria-label="演示模式"
+        >
+          <Presentation size={15} />
         </button>
 
         <button

@@ -1,6 +1,6 @@
 import React from 'react'
 import { Command } from 'cmdk'
-import { Search, FileText, Plus, Columns, Grid, List, Moon, Sun, Monitor, Maximize } from 'lucide-react'
+import { Search, FileText, Plus, Columns, Grid, List, Moon, Sun, Monitor, Maximize, Presentation } from 'lucide-react'
 import { useSettingsStore } from '../../features/settings/settingsStore'
 import { useDocumentStore } from '../../features/document/documentStore'
 import { useWorkspaceStore } from '../../app/workspaceStore'
@@ -11,9 +11,17 @@ interface CommandPaletteProps {
   onNewDoc: () => void
   onImport: () => void
   onExport: () => void
+  onOpenPresentation: () => void
 }
 
-export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, onNewDoc, onImport, onExport }) => {
+export const CommandPalette: React.FC<CommandPaletteProps> = ({
+  isOpen,
+  onClose,
+  onNewDoc,
+  onImport,
+  onExport,
+  onOpenPresentation,
+}) => {
   const setViewMode = useDocumentStore((s) => s.setViewMode)
   const setWorkspaceView = useWorkspaceStore((s) => s.setActiveView)
   const settings = useSettingsStore((s) => s.settings)
@@ -81,6 +89,12 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
                 className="flex items-center px-2 py-2 text-sm rounded-md text-zinc-700 dark:text-zinc-300 aria-selected:bg-zinc-100 dark:aria-selected:bg-zinc-800 aria-selected:text-zinc-900 dark:aria-selected:text-white cursor-pointer"
               >
                 <Maximize size={16} className="mr-2" /> 开启/关闭 专注模式
+              </Command.Item>
+              <Command.Item
+                onSelect={() => { onOpenPresentation(); onClose() }}
+                className="flex items-center px-2 py-2 text-sm rounded-md text-zinc-700 dark:text-zinc-300 aria-selected:bg-zinc-100 dark:aria-selected:bg-zinc-800 aria-selected:text-zinc-900 dark:aria-selected:text-white cursor-pointer"
+              >
+                <Presentation size={16} className="mr-2" /> 开始演示
               </Command.Item>
             </Command.Group>
 

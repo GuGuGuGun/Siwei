@@ -101,9 +101,17 @@ vi.mock('../features/agent/AgentPanel', () => ({
   AgentPanel: () => <aside data-testid="agent-panel" />,
 }))
 
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
 describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubGlobal('ResizeObserver', ResizeObserverMock)
+    HTMLElement.prototype.scrollIntoView = vi.fn()
     useDocumentStore.setState({
       currentDoc: createDocument(),
       viewMode: 'mindmap',
@@ -192,6 +200,29 @@ describe('App', () => {
     })
   })
 
+  it('opens presentation mode from the top toolbar', async () => {
+    render(<App />)
+
+    const presentationButton = await screen.findByRole('button', { name: '演示模式' })
+
+    fireEvent.click(presentationButton)
+
+    expect(screen.getByRole('dialog', { name: '演示模式' })).toBeInTheDocument()
+    expect(screen.getByText('测试文档')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '下一步' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '退出演示' })).toBeInTheDocument()
+  })
+
+  it('opens presentation mode from the command palette', async () => {
+    render(<App />)
+
+    fireEvent.click(await screen.findByTitle('命令面板 (Ctrl+K)'))
+    fireEvent.click(screen.getByText('开始演示'))
+
+    expect(screen.getByRole('dialog', { name: '演示模式' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '下一步' })).toBeInTheDocument()
+  })
+
   it('keeps the windowed view switcher from wrapping inside the top toolbar', async () => {
     render(<App />)
 
@@ -204,6 +235,16 @@ describe('App', () => {
     expect(outlineButton).toHaveClass('whitespace-nowrap')
     expect(mindMapButton).toHaveClass('whitespace-nowrap')
     expect(splitButton).toHaveClass('whitespace-nowrap')
+  })
+
+  it('shows the task summary once in the top toolbar', async () => {
+    useDocumentStore.setState({ viewMode: 'outline' })
+
+    render(<App />)
+
+    await waitFor(() => expect(screen.getByText('Siwei Workspace')).toBeInTheDocument())
+    expect(screen.getAllByText('当前范围内没有待办')).toHaveLength(1)
+    expect(screen.getByText('当前范围内没有待办').closest('header')).toBeInTheDocument()
   })
 
   it('suppresses the browser default context menu', async () => {

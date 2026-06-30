@@ -335,6 +335,12 @@ mod tests {
         assert!(html.contains("<title>Project</title>"));
         assert!(html.contains("发布计划"));
         assert!(html.contains("节点备注"));
+        assert!(html.contains(r#"id="siwei-share-data""#));
+        assert!(html.contains(r#"data-renderer="siwei-offline-mindmap""#));
+        assert!(html.contains("data-action=\"toggle-view\""));
+        assert!(html.contains("data-action=\"toggle-collapse\""));
+        assert!(!html.contains("https://"));
+        assert!(!html.contains("http://"));
         assert!(text.contains("# Project"));
         assert!(text.contains("- [ ] 发布计划 #工作"));
         assert!(text.contains("> 节点备注"));

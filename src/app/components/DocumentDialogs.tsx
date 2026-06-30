@@ -76,7 +76,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
       <ExportOptionButton title="导出 JSON 备份 (.siwei.json)" description="完整备份大纲树结构，包含节点元数据" format="json" onExport={onExport} />
       <ExportOptionButton title="导出 OPML (.opml)" description="用于迁移到幕布及其他大纲工具" format="opml" onExport={onExport} />
       <ExportOptionButton title="导出 Markdown (.md)" description="生成可迁移的大纲 Markdown 文件" format="markdown" onExport={onExport} />
-      <ExportOptionButton title="导出 HTML (.html)" description="生成带基础样式的可读交付文档" format="html" onExport={onExport} />
+      <ExportOptionButton title="导出 HTML 分享包 (.html)" description="生成离线可打开的大纲与导图只读分享包" format="html" onExport={onExport} />
       <ExportOptionButton title="导出纯文本 (.txt)" description="生成稳定缩进树，便于复制和审阅" format="text" onExport={onExport} />
       {isMindMapVisible && (
         <>
