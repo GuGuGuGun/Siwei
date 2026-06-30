@@ -34,6 +34,8 @@ interface OutlineNodeItemProps {
 export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   node,
   depth,
+  path,
+  parentId,
   isSelected,
   isMultiSelected = false,
   isCollapsed,
@@ -165,8 +167,11 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   const isAgentMoving = agentPreview?.kind === 'move'
   const agentTextPreview = agentPreview?.kind === 'update' ? agentPreview.text : undefined
 
-  const { handleDragStart, handleDragOver, handleDrop } = useNodeDragDrop({
+  const siblingIndex = path[path.length - 1] ?? 0
+  const { handlePointerDown, isDragging, isDropTarget, dragOffset, previewShiftY } = useNodeDragDrop({
     nodeId: node.id,
+    parentId,
+    siblingIndex,
     onMoveToSibling: moveNodeToSibling,
   })
 
@@ -175,6 +180,17 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
     <div
       ref={containerRef}
       data-node-id={node.id}
+      data-node-parent-id={parentId ?? ''}
+      data-node-sibling-index={siblingIndex}
+      data-drag-state={isDragging ? 'source' : undefined}
+      data-drop-target={isDropTarget ? 'true' : undefined}
+      style={
+        isDragging
+          ? { transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0) scale(1.015)` }
+          : previewShiftY !== 0
+            ? { transform: `translate3d(0, ${previewShiftY}px, 0)` }
+            : undefined
+      }
       className={`group relative flex items-center h-9 px-2 rounded-lg transition-all duration-200 border ${
         isAgentDeleting
           ? 'bg-rose-50/80 border-rose-200 text-rose-800'
@@ -187,6 +203,16 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
           : isFocusedNode
             ? 'bg-amber-50 border-amber-300/70 text-zinc-900 shadow-fabric'
           : 'text-zinc-700 border-transparent hover:bg-[#FAF8F5]/80 hover:text-zinc-900'
+      } ${
+        isDragging
+          ? 'pointer-events-none z-10 transform-gpu will-change-transform opacity-75 shadow-lg ring-1 ring-amber-900/20 duration-75 ease-out'
+          : ''
+      } ${
+        isDropTarget
+          ? 'border-amber-400/80 bg-amber-50/80 shadow-fabric ring-1 ring-amber-300/40'
+          : ''
+      } ${
+        previewShiftY !== 0 ? 'transform-gpu will-change-transform duration-200 ease-out' : ''
       }`}
       onClick={(e) => {
         e.stopPropagation()
@@ -201,8 +227,6 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
         event.stopPropagation()
         onNodeContextMenu?.(event, node.id)
       }}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
     >
       {/* Stitch Indent Guide Lines */}
       {Array.from({ length: depth }).map((_, i) => (
@@ -214,9 +238,10 @@ export const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
 
       {/* Knit Grip Handle */}
       <div
-        draggable
-        onDragStart={handleDragStart}
-        className="flex h-full w-5 shrink-0 items-center justify-center cursor-grab active:cursor-grabbing"
+        onPointerDown={handlePointerDown}
+        className={`flex h-full w-5 shrink-0 items-center justify-center transition-transform cursor-grab active:cursor-grabbing ${
+          isDragging ? 'scale-110 cursor-grabbing' : ''
+        }`}
         title="拖动排序"
       >
         <KnitGrip />

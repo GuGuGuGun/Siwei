@@ -36,6 +36,23 @@ describe('OutlineNodeItem', () => {
     })
   })
 
+  const mockNodeRect = (node: HTMLElement, top: number, height = 40) => {
+    Object.defineProperty(node, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        bottom: top + height,
+        height,
+        left: 0,
+        right: 400,
+        top,
+        width: 400,
+        x: 0,
+        y: top,
+        toJSON: () => undefined,
+      }),
+    })
+  }
+
   it('keeps the note editor popover outside the clipped action toolbar', () => {
     const node = createDocument().root.children[1]
 
@@ -237,6 +254,51 @@ describe('OutlineNodeItem', () => {
       'D',
       'B',
       'C',
+    ])
+  })
+
+  it('reorders nodes when dragging a grip onto a sibling with pointer events', () => {
+    render(<OutlineEditor />)
+
+    const sourceGrip = document.querySelector('[data-node-id="node-2"] [title="拖动排序"]') as HTMLElement
+    const sourceNode = document.querySelector('[data-node-id="node-2"]') as HTMLElement
+    const targetNode = document.querySelector('[data-node-id="node-1"]') as HTMLElement
+    mockNodeRect(targetNode, 0)
+    mockNodeRect(sourceNode, 40)
+
+    fireEvent.pointerDown(sourceGrip, { button: 0, pointerId: 1, clientX: 10, clientY: 60 })
+    expect(sourceNode).toHaveAttribute('data-drag-state', 'source')
+
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 34, clientY: 20 })
+    expect(sourceNode).toHaveStyle({ transform: 'translate3d(24px, -40px, 0) scale(1.015)' })
+    expect(targetNode).toHaveAttribute('data-drop-target', 'true')
+    expect(targetNode).toHaveStyle({ transform: 'translate3d(0, 40px, 0)' })
+
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 34, clientY: 20 })
+
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual([
+      'node-2',
+      'node-1',
+    ])
+    expect(sourceNode).not.toHaveAttribute('data-drag-state')
+    expect(targetNode).not.toHaveAttribute('data-drop-target')
+  })
+
+  it('ignores pointer drops without a valid target node', () => {
+    render(<OutlineEditor />)
+
+    const sourceGrip = document.querySelector('[data-node-id="node-2"] [title="拖动排序"]') as HTMLElement
+    const sourceNode = document.querySelector('[data-node-id="node-2"]') as HTMLElement
+    const targetNode = document.querySelector('[data-node-id="node-1"]') as HTMLElement
+    mockNodeRect(targetNode, 0)
+    mockNodeRect(sourceNode, 40)
+
+    fireEvent.pointerDown(sourceGrip, { button: 0, pointerId: 1 })
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 100, clientY: 240 })
+
+    expect(useDocumentStore.getState().currentDoc?.root.children.map((node) => node.id)).toEqual([
+      'node-1',
+      'node-2',
     ])
   })
 })
